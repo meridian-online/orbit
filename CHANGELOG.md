@@ -2,6 +2,27 @@
 
 All notable changes to orbit are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.4] - 2026-05-08
+
+First live wires under choice 0019 (cards declare framework wires in scenarios; aspirational cards don't pass review). Card 0026's BLUF / Decision Brief contract is now substrate-enforced — distilled into `.orbit/STYLE.md`, imported into project CLAUDE.md, and cited from the three prose-producing orb skills. Closes the canonical aspirational-card example the choice was written about.
+
+### Added
+
+- `.orbit/STYLE.md` — distilled BLUF / Decision Brief contract: TL;DR-led skeleton, recommendation discipline, seven anti-patterns by name, response-variant table, tone contract. Single-screen distillation, not a verbatim card transcription.
+- Project `CLAUDE.md` imports STYLE.md via `@.orbit/STYLE.md` (with the contract inlined for cache-resilience) so the contract loads into every orbit-repo session.
+- `/orb:design`, `/orb:review-spec`, `/orb:review-pr` SKILL.md files cite card 0026 + STYLE.md using the belt-and-braces pattern (one-line prose marker + `@` import).
+- Choice 0019 — cards must declare framework wires in scenarios; aspirational cards (`maturity: planned` + empty `specs:`) don't pass review.
+- Cards 0028 (four pillars), 0029 (fan-out), 0030 (canonical schema and glossary), 0031 (design-session user language) distilled from memos. Each carries the "Wired into the framework" gate scenario.
+
+### Changed
+
+- Project CLAUDE.md: four pillars (executive-level interaction, agent self-learning, agent state-persistence, long-running R&D) named explicitly as the load-bearing why-test for any work in this repo.
+- Card 0026 (executive-communication) maturity bumped `planned` → `emerging` after the first wires drive shipped.
+
+### Fixed
+
+- `orbit memory remember` invocation syntax in skill prompts and PRIME.md — previously used a stale form that didn't match the current orbit-state CLI.
+
 ## [0.4.3] - 2026-05-08
 
 `orbit canonicalise` is now a first-class subcommand of the main `orbit` binary. Hand-edited cards and choices that drift from the canonical writer's output (whitespace, field order, trailing newlines) used to fail `orbit verify` with `not_byte_identical` and no in-toolbox fixer — the brew binary shipped only `verify`, and the standalone `orbit-canonicalise` repair tool wasn't packaged. Surfaced when a downstream session got stuck adding a new MADR with no path forward short of building from source.
