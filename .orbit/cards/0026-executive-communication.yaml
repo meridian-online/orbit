@@ -50,7 +50,8 @@ scenarios:
   when: enforcement is examined
   then: at least one named wire is live — CLAUDE.md preamble cites the BLUF / Decision Brief contract, /orb:design and /orb:review-* SKILL.md cite this card for response shape, and /orb:audit can flag responses against the seven anti-patterns — without these wires the card is aspirational and agents follow it only by happenstance
   gate: true
-specs: []
+specs:
+- .orbit/specs/2026-05-08-executive-communication-wires.yaml
 relations:
 - card: 0018-two-artefact-contract
   type: feeds

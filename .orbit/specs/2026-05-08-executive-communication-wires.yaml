@@ -2,7 +2,7 @@ id: 2026-05-08-executive-communication-wires
 goal: Wire card 0026's BLUF / Decision Brief contract into the substrate via .orbit/STYLE.md, project CLAUDE.md @-import, and orb-skill citations so agent-to-Hugh prose is loaded into every orbit-repo session by default
 cards:
 - 0026-executive-communication
-status: open
+status: closed
 labels:
 - spec
 - drive
