@@ -11,6 +11,10 @@ Stress-test a specification before implementation begins. Every spec gets review
 
 This skill runs in a **forked context** — a fresh agent session with zero shared conversation history.
 
+Agent prose follows the BLUF / Decision Brief contract — see card 0026 (`.orbit/cards/0026-executive-communication.yaml`).
+
+@.orbit/STYLE.md
+
 ## Usage
 
 ```

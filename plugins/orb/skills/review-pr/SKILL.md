@@ -9,6 +9,10 @@ agent: general-purpose
 
 Verify an implementation before merge. This skill runs in a **forked context** — a fresh agent session with execution permissions that reads the diff cold.
 
+Agent prose follows the BLUF / Decision Brief contract — see card 0026 (`.orbit/cards/0026-executive-communication.yaml`).
+
+@.orbit/STYLE.md
+
 ## Usage
 
 ```

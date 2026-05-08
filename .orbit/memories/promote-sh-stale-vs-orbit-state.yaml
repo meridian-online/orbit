@@ -1,0 +1,4 @@
+key: promote-sh-stale-vs-orbit-state
+body: 'promote.sh (plugins/orb/scripts/promote.sh) still uses the bd CLI and bd metadata fields — predates orbit-state v0.1. The drive SKILL.md describes orbit-state semantics (orbit spec show, .orbit/specs/<id>/spec.yaml, drive.yaml sidecar) but the script wasn''t ported alongside. Drive''s promote stage needs replacing with orbit spec create + direct YAML write of acceptance_criteria + orbit canonicalise. Discovered 2026-05-08 during /orb:drive on .orbit/cards/0026-executive-communication.yaml — caught only because the agent checked the script before invoking it (card 0025 codebase-mastery in action). Follow-up: file a spec to update promote.sh so future drives don''t wedge.'
+timestamp: 2026-05-08T08:00:12.094888257Z
+labels: []

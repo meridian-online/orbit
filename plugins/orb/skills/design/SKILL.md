@@ -7,6 +7,10 @@ description: Focused design session — capture what good looks like for a featu
 
 Focused design conversation that captures what good looks like for a feature card. The card already answers who, what, and why — this stage clarifies constraints, priorities, risk appetite, and scope boundaries. Implementation approach is the implementing agent's job, not the author's.
 
+Agent prose follows the BLUF / Decision Brief contract — see card 0026 (`.orbit/cards/0026-executive-communication.yaml`).
+
+@.orbit/STYLE.md
+
 ## Usage
 
 ```

@@ -3,7 +3,7 @@ as_a: orbit user receiving agent output
 i_want: every substantive agent response to lead with a one-line TL;DR plus a single concrete recommendation, with reasoning capped at three points and detail listed but not dumped
 so_that: I can act on the response in seconds rather than minutes; agents pay the compression cost so I do not have to — three asymmetries (attention, context, decision) honoured by the agent rather than passed back to me
 goal: agent-to-Hugh prose is always BLUF-led, recommendation-driven, anti-pattern-free, warm-but-not-chatty — Hugh acts on output rather than parsing it
-maturity: planned
+maturity: emerging
 scenarios:
 - name: TL;DR leads every substantive response
   given: an agent producing a substantive response
@@ -50,12 +50,13 @@ scenarios:
   when: enforcement is examined
   then: at least one named wire is live — CLAUDE.md preamble cites the BLUF / Decision Brief contract, /orb:design and /orb:review-* SKILL.md cite this card for response shape, and /orb:audit can flag responses against the seven anti-patterns — without these wires the card is aspirational and agents follow it only by happenstance
   gate: true
-specs: []
+specs:
+- .orbit/specs/2026-05-08-executive-communication-wires.yaml
 relations:
 - card: 0018-two-artefact-contract
   type: feeds
   reason: the executive surface (cards + decisions + dashboard) is rendered in this prose discipline; without it, the surface stays bloat-prone
 references:
-- '.orbit/cards/memos/2026-05-06-executive-communication-framework.md: distillation source — full BLUF / Decision Brief framework with anti-patterns and tone contract'
+- 'historical: 2026-05-06 distillation memo (executive-communication-framework) — deleted after promotion per orbit convention; original distillation captured the full BLUF / Decision Brief framework, anti-patterns, and tone contract that this card now owns'
 - 'ops decision 0029 (recommendation discipline): the precursor — this card subsumes and generalises it'
 notes: []

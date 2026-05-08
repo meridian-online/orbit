@@ -1,0 +1,45 @@
+id: 2026-05-08-executive-communication-wires
+goal: Wire card 0026's BLUF / Decision Brief contract into the substrate via .orbit/STYLE.md, project CLAUDE.md @-import, and orb-skill citations so agent-to-Hugh prose is loaded into every orbit-repo session by default
+cards:
+- 0026-executive-communication
+status: closed
+labels:
+- spec
+- drive
+acceptance_criteria:
+- id: ac-01
+  description: .orbit/STYLE.md exists at the repo root containing a distilled BLUF / Decision Brief checklist — TL;DR contract, recommendation discipline (imperative voice over hedge-stacking), the seven anti-patterns by name with a one-liner each (lede-burying, hedge-stacking, pre-emptive detail dump, menu-presenting, undefined jargon, apologetic preambles, restating the question), response-variant table (decision / status / factual / research), tone contract (British English, direct, warm but not chatty). Single screen of dense prose, distilled — not a verbatim transcription of card 0026's scenarios.
+  gate: true
+  checked: true
+- id: ac-02
+  description: Project CLAUDE.md (repo root) imports STYLE.md via `@.orbit/STYLE.md` in a load-bearing position — early enough that the rest of CLAUDE.md sits under the contract, late enough that the existing 'four pillars' framing is preserved.
+  gate: true
+  checked: true
+- id: ac-03
+  description: plugins/orb/skills/design/SKILL.md carries an `@.orbit/STYLE.md` import (or path-citation fallback if `@` doesn't resolve from plugin SKILL.md files) AND a one-line prose marker citing card 0026 + STYLE.md by path. Belt-and-braces per design session Q4.
+  gate: true
+  checked: true
+- id: ac-04
+  description: plugins/orb/skills/review-spec/SKILL.md mirrors ac-03's citation pattern (@ import + one-line prose marker) for the spec-review skill.
+  gate: true
+  checked: true
+- id: ac-05
+  description: plugins/orb/skills/review-pr/SKILL.md mirrors ac-03's citation pattern (@ import + one-line prose marker) for the PR-review skill.
+  gate: true
+  checked: true
+- id: ac-06
+  description: 'Implementation has verified `@` import semantics from plugin SKILL.md files (read by the harness when a skill is invoked). Result is recorded in spec notes: either `@` resolves (ACs 03/04/05 use `@`) or it doesn''t (ACs use a prose-citation fallback). A single canonical pattern is applied across all three skills — no mix-and-match.'
+  gate: false
+  checked: true
+- id: ac-07
+  description: Stale references in card 0026 audited. The deleted memo reference (.orbit/cards/memos/2026-05-06-executive-communication-framework.md) is removed or annotated as historical. The `ops decision 0029` reference is sanity-checked for sensitive content (orbit is a public repo); kept if benign, otherwise abstracted.
+  gate: false
+  checked: true
+- id: ac-08
+  description: '`orbit verify` passes after all changes, and `orbit spec close 2026-05-08-executive-communication-wires` succeeds at completion — transactionally appending this spec''s id to card 0026''s `specs:` array. Card 0026''s specs array is no longer empty; the choice 0019 audit signal flips from aspirational to wired.'
+  gate: false
+  checked: true
+- id: ac-09
+  description: Spot-check confirms STYLE.md is loaded into context — `cat CLAUDE.md` shows the @.orbit/STYLE.md import line; an agent session opened in this repo can recall STYLE.md content (e.g., name the seven anti-patterns) without re-reading card 0026.
+  gate: true
+  checked: true

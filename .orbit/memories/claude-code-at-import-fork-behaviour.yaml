@@ -1,0 +1,4 @@
+key: claude-code-at-import-fork-behaviour
+body: '@filepath imports in CLAUDE.md and CLAUDE.md edits in general DO NOT reach subagent forks within the same session as of 2026-05-08. Verified empirically twice: (1) fork sees CLAUDE.md but @.orbit/STYLE.md doesn''t expand; (2) STYLE.md content inlined directly into CLAUDE.md still doesn''t reach the fork — the fork receives a cached snapshot from session start, not the live file. Implication: contracts wired into CLAUDE.md will reach NEW sessions opened after the change is merged, but cannot be verified by spawning a subagent in the same session that did the edit. Spot-checks of CLAUDE.md content require a fresh session. The wires themselves are correctly installed (file content is real); the verification mechanism (in-session subagent recall) is the wrong tool.'
+timestamp: 2026-05-08T08:14:29.144615827Z
+labels: []
