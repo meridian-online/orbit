@@ -2,11 +2,11 @@ spec_id: 2026-05-09-orbit-method-md
 card_path: .orbit/cards/0017-setup-is-bead-aware.yaml
 autonomy: guided
 iteration: 1
-stage: implement
+stage: review-pr
 review_spec_cycle: 3
 review_spec_date: '2026-05-09'
 review_pr_cycle: 0
-review_pr_date: null
+review_pr_date: '2026-05-09'
 iteration_history: []
 notes: |-
   Bootstrap: spec was filed manually via the orbit-state workaround (orbit spec create + direct YAML write of acceptance_criteria + canonicalise) — not via promote.sh. Drive.yaml initially placed at sidecar path `.orbit/specs/<spec-id>.drive.yaml` but moved to folder path `.orbit/specs/<spec-id>/drive.yaml` after orbit's canonicaliser tried to parse the .yaml sidecar as a spec and failed — sidecar layout migration (spec 2026-05-09-drive-rally-sidecar-layout) needs to teach the scanner about <id>.<sidecar>.yaml shapes before drive.yaml can move to sidecar form. Review-spec / review-pr files stay at sidecar paths (`.md` files don't trip the YAML scanner).
