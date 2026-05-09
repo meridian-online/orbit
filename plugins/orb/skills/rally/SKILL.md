@@ -5,46 +5,7 @@ description: Coordinate multiple independent cards through the orbit pipeline as
 
 # /orb:rally
 
-Drive **multiple** independent cards through the orbit pipeline as a
-coordinated rally. Rally creates a `rally.yaml` durable state file at
-proposal-approval time and records each card-spec under it as a child.
-The dependency graph between children encodes the implementation order.
-The lead consults `rally.yaml.children` to find which cards are
-claimable. Individual cards run `/orb:drive <spec-id>` in full autonomy
-(either serially in the main checkout or in parallel inside isolated
-worktrees).
-
-Rally exists because serial `/orb:drive` invocations accumulate human
-touchpoints — every card pauses the author for design, spec, review,
-and PR. A rally packs the human work into two high-signal gates
-(ideation and assurance) and lets the agent work between them with
-maximum clarity based on the best available evidence.
-
-## Migration Note
-
-Earlier `/orb:rally` revisions tracked rally state via bd epic beads,
-child task beads with `--parent` links, `bd dep add` edges, and
-`metadata.rally_*` fields. orbit-state v0.1's spec schema is strict
-(`deny_unknown_fields`) and does not carry a metadata bag, parent-spec
-relationships, or a dep graph. Rally state has moved into the named
-`rally.yaml` slot per the orbit vocabulary:
-
-| Old (bd machinery)                          | New (orbit-state)                                                          |
-|---------------------------------------------|----------------------------------------------------------------------------|
-| Epic bead                                   | `rally.yaml` at `.orbit/specs/<date>-<slug>-rally/rally.yaml`              |
-| Child task beads under epic                 | `rally.yaml.children[]` array of card-spec records                          |
-| `--parent` linkage                          | `rally.yaml.children[].rally_dir` back-pointer to the rally folder         |
-| `metadata.rally_phase`                      | `rally.yaml.phase`                                                         |
-| `metadata.rally_card_phase`                 | `rally.yaml.children[].card_phase`                                         |
-| `metadata.rally_branch / rally_worktree`    | `rally.yaml.children[].branch`, `rally.yaml.children[].worktree`           |
-| `bd dep add <later> <earlier>`              | `rally.yaml.children[].dep_predecessors: [<earlier-spec-id>, ...]`         |
-| `bd ready --type task --parent <epic>`      | Lead computes claimable set from `children[]` (open + all deps closed/parked) |
-| `bd children <epic>`                        | `rally.yaml.children` array                                                |
-| `bd close <child> --reason "PARKED: ..."`   | `orbit spec note <spec-id> "PARKED: [<label>] <reason>"` then `orbit spec close <spec-id>` |
-| `bd close <epic> --reason "rally complete"` | Update `rally.yaml.phase: complete`; the rally folder remains              |
-
-There is no auto-migration. In-flight bd-era rallies finish under the
-prior version or restart as fresh orbit-state rallies.
+Drive **multiple** independent cards through the orbit pipeline as a coordinated rally. A rally packs the human work into two high-signal gates (ideation and assurance) and lets the agent work between them with maximum clarity from the best available evidence — instead of paying a per-card touchpoint tax for design, spec, review, and PR. State lives in `rally.yaml` at proposal-approval time; the `children` array encodes the implementation order via `dep_predecessors`. Individual cards run `/orb:drive <spec-id>` in full autonomy (serially in the main checkout, or in parallel inside isolated worktrees).
 
 ## Usage
 
@@ -93,11 +54,11 @@ proceeds in three branches:
 3. **No argument** — query for in-progress rallies:
 
    ```bash
-   find .orbit/specs -maxdepth 2 -name 'rally.yaml' -print | \
-     while read -r f; do
-       PHASE=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('$f')).get('phase',''))")
-       [ "$PHASE" != "complete" ] && [ -n "$PHASE" ] && echo "$(dirname "$f")"
-     done
+   for f in .orbit/specs/*-rally/rally.yaml; do
+     [[ -f "$f" ]] || continue
+     phase=$(yq -r '.phase // ""' "$f")
+     [[ "$phase" != "complete" && -n "$phase" ]] && dirname "$f"
+   done
    ```
 
    - **Single match** → resume it.
@@ -384,35 +345,18 @@ After the sub-agent returns, the lead runs all three checks:
    `rally.yaml`, which the lead alone touches. Entries present in both
    pre and post are pre-existing lead-side state and are ignored.
 
-On the **first** violation: the lead re-briefs the same sub-agent with
-an explicit path warning naming the offending entry (e.g. `your
-previous return created 'plugins/orb/scratch.md' outside <spec_dir>;
-do not write outside <spec_dir>`). This re-brief is a
-**pre-qualification retry** — it is NOT a rally-level strike and does
-not count against any drive-full escalation budget.
+On the **first** violation: re-brief the same sub-agent with an
+explicit path warning naming the offending entry (e.g. `your previous
+return created 'plugins/orb/scratch.md' outside <spec_dir>; do not
+write outside <spec_dir>`). This re-brief is a **pre-qualification
+retry** — NOT a rally-level strike.
 
-On the **second** violation for the same card: park the card by
-updating `rally.yaml`:
-
-```yaml
-# children[i]: card_phase: parked
-# children[i]: park_reason: "PARKED: [tool_surface_incomplete] sub-agent violated path discipline twice"
-```
-
-…and append a final spec note:
-
-```bash
-orbit spec note <child-spec-id> "PARKED: [tool_surface_incomplete] sub-agent violated path discipline twice"
-orbit spec close <child-spec-id>
-```
-
-The rally continues with the remainder.
+On the **second** violation for the same card: park via the
+`rally.yaml.children[].card_phase=parked` + `orbit spec note + orbit
+spec close` flow with `reason_label: tool_surface_incomplete` (see
+§NO-GO Handling). The rally continues with the remainder.
 
 ### 2d. Wait for all sub-agents to return
-
-Verify each card's `<spec_dir>/decisions.md` exists. If any sub-agent
-failed the three-primitive check twice, the card is parked and the
-rally continues with the remainder.
 
 For each non-parked child, update `rally.yaml`:
 
@@ -470,10 +414,9 @@ approvals/overrides. The sub-agent writes `<spec_dir>/interview.md`
 following the design skill's interview record format, reflecting the
 approved decisions.
 
-The same three-primitive verification (§2c) applies to any
-re-launched sub-agent. First violation → re-brief retry. Second
-violation → park via the `rally.yaml.children[].card_phase=parked` +
-`orbit spec close` flow.
+Re-launched sub-agents are subject to the same three-primitive
+verification as §2c (first violation → re-brief retry; second
+violation → park).
 
 When all interviews exist, the rally moves on to Stage 4.
 
@@ -574,38 +517,26 @@ git checkout main
 When dep_predecessors arrays are non-empty, the claimable set returns
 exactly one card at a time. The lead loops:
 
-```bash
-while true; do
-  # Compute the claimable set from rally.yaml
-  NEXT=$(python3 -c "
-import yaml
-with open('$RALLY_DIR/rally.yaml') as f:
-    r = yaml.safe_load(f)
-children = r['children']
-done = {c['spec_id'] for c in children if c['card_phase'] in ('complete','parked')}
-for c in children:
-    if c['card_phase'] in ('designed','implementing') and \
-       all(p in done for p in c.get('dep_predecessors', [])) and \
-       c['card_phase'] != 'complete':
-        print(c['spec_id'])
-        break
-")
-  [ -z "$NEXT" ] && break
-  # Update rally.yaml: children[NEXT].card_phase=implementing, worktree=main
-  BRANCH=$(python3 -c "import yaml; r=yaml.safe_load(open('$RALLY_DIR/rally.yaml')); print(next(c['branch'] for c in r['children'] if c['spec_id']=='$NEXT'))")
-  git checkout "$BRANCH"
-  /orb:drive "$NEXT"     # drive resumes from drive.yaml stage
-  # On APPROVE at review-pr, drive closes the spec via orbit spec close
-  # On NO-GO, drive escalates → handled by §NO-GO Handling below
-  git checkout main
-done
-```
+- Compute the claimable set per the §Stage 1 rule (children whose
+  `card_phase` is `designed` or `implementing` AND every entry in
+  `dep_predecessors` belongs to a child whose `card_phase` is
+  `complete` or `parked`).
+- Take the first claimable child as `NEXT`. If the set is empty, the
+  serial pass is done.
+- Update `rally.yaml`: `children[NEXT].card_phase=implementing,
+  worktree=main`.
+- Resolve the branch with
+  `BRANCH=$(yq -r ".children[] | select(.spec_id == \"$NEXT\") | .branch" "$RALLY_DIR/rally.yaml")`.
+- Check out the branch, run `/orb:drive <NEXT>` (which resumes from
+  drive.yaml's stage and closes the spec on APPROVE), then return to
+  main.
+- Repeat. The next card is released by the claimable-set rule only
+  when its predecessor closes (`card_phase` becomes `complete` or
+  `parked`).
 
 Each serial card runs **drive-full against the rally branch in the
 main checkout** — rally-level autonomy does not reduce drive's
-internal autonomy. The next card is released by the claimable-set rule
-only when its predecessor closes (`card_phase` becomes `complete` or
-`parked`).
+internal autonomy.
 
 ### 5c. Parallel implementation (no dep_predecessors)
 
@@ -616,7 +547,7 @@ concurrently, each in its own git worktree.
 For each card:
 
 ```bash
-SLUG=$(python3 -c "import yaml; r=yaml.safe_load(open('$RALLY_DIR/rally.yaml')); print(next(c['branch'] for c in r['children'] if c['spec_id']=='$CHILD_SPEC').split('/')[-1])")
+SLUG=$(yq -r ".children[] | select(.spec_id == \"$CHILD_SPEC\") | .branch" "$RALLY_DIR/rally.yaml" | awk -F/ '{print $NF}')
 WORKTREE_PATH="$(realpath ..)/$(basename "$(pwd)")-rally-$SLUG"
 git worktree add "$WORKTREE_PATH" "rally/$SLUG"
 # Update rally.yaml: children[CHILD_SPEC].card_phase=implementing, worktree=$WORKTREE_PATH
@@ -710,14 +641,9 @@ escalation from a parallel sub-agent) parks the card immediately.
 **No iteration retries within the rally.** Rally is about throughput;
 retrying one card while others wait defeats the purpose.
 
-Drive escalations inside a sub-agent surface as a JSON return:
-
-```json
-{ "verdict": "parked", "reason_label": "<label>", "reason": "<one-line>",
-  "spec_dir": "<spec_dir>" }
-```
-
-Rally lead converts that into:
+Drive escalations from a sub-agent surface as the parked-verdict JSON
+defined in the §5c sub-agent brief (`{verdict, reason_label, reason,
+spec_dir}`). Rally lead converts that into:
 
 ```bash
 orbit spec note <child-spec-id> "PARKED: [<reason_label>] <reason>"
@@ -835,6 +761,34 @@ When every entry in `rally.yaml.children` has `card_phase` either
    the next rally begins, it creates its own folder alongside this
    one.
 
+## Critical Rules
+
+These are invariants — not duplicates of the body. The body describes
+what to do at each step; these rules describe what must always hold,
+and what must never happen, regardless of where in the rally you are.
+
+- **One active rally at a time.** Resolution refuses a fresh rally if
+  an in-progress rally folder exists. Children-graph orchestration
+  loses meaning if two rallies overlap on cards.
+- **rally.yaml is the single source of orchestration state.** No
+  rally-coordination data lives outside it. **Sub-agents never read
+  or write rally.yaml** — they read their own spec and update their
+  own drive.yaml. The lead alone touches rally.yaml.
+- **Sub-agent path discipline is trust + post-verify.** Claude Code
+  does not provide tool-level path enforcement; the brief names the
+  target directory as a contract, the lead verifies on return via the
+  three primitives (§2c). This skill does not claim path enforcement
+  it does not have.
+- **Drive autonomy inside a rally is always full.** Rally-level
+  autonomy (guided | supervised) governs rally-phase pauses only —
+  parallel sub-agents in worktrees and serial cards in main both run
+  drive in full mode.
+- **Single-strike NO-GO.** A card that fails any review is parked
+  immediately. No retries within the rally. The sub-agent's internal
+  drive iterations (3 NO-GO budget × 3 REQUEST_CHANGES per stage) are
+  the strike. A parked card can be driven individually later with
+  `/orb:drive <card_path>`.
+
 ## Resumption
 
 When `/orb:rally` is invoked with a rally folder (or detects an
@@ -874,140 +828,10 @@ in-progress rally per §Input contract):
    completions for any sub-agent that was running before the session
    died.
 
-5. **Announce the resumption:**
-
-   ```
-   Resuming rally: <goal>
-   Folder: <rally-folder>
-   Phase: <phase>
-   Cards: <N> proposed, <N> complete, <N> parked, <N> in progress
-   Per-card resume points (from rally.yaml.children):
-     - card A (spec <id>, worktree: main)         → in implement
-     - card B (spec <id>, worktree: /…/rally-b)   → in review-pr
-   ```
-
-## Critical Rules
-
-- **One active rally at a time.** Resolution refuses a fresh rally if
-  an in-progress rally folder exists.
-- **Never skip the proposal gate.** The author qualifies the rally;
-  the agent never launches unprompted.
-- **Thin-card guard runs at proposal.** Any candidate card with fewer
-  than 3 scenarios refuses the rally before the proposal is shown.
-  Thickening the card via `/orb:card` or removing it is the only way
-  forward.
-- **rally.yaml is the single source of orchestration state.** No
-  rally-coordination data lives outside it. Sub-agents never read or
-  write rally.yaml — they read their own spec and update their own
-  drive.yaml.
-- **Sub-agent path discipline is trust + post-verify.** The brief
-  names the target directory; the lead verifies on return via
-  self-report, artefact assertion, and pre-vs-post `git status
-  --porcelain` snapshot diff. Claude Code does not provide tool-level
-  path enforcement, and this skill does not claim it does.
-- **Drive autonomy inside a rally is always full.** Rally-level
-  autonomy (guided | supervised) governs rally-phase pauses only.
-- **The disjointness check gates ordering.** Any non-empty
-  intersection triggers `dep_predecessors` entries; the author can
-  modify but not skip.
-- **Mid-flight serial conversion is a single rally.yaml edit.** No
-  special mode, no sub-agent restart — append the dep_predecessors
-  entry and the claimable-set rule does the rest.
-- **Single-strike NO-GO.** A card that fails any review is parked via
-  `orbit spec note + orbit spec close` plus
-  `rally.yaml.children[].card_phase=parked`. No retries within the
-  rally.
-- **Stacked PRs skip parked cards.** Gaps in the stack are handled by
-  targeting the last non-parked branch.
-- **The claimable-set rule is the queue.** Rally does not maintain a
-  parallel in-session task list — the rally.yaml.children array
-  provides live visibility on demand.
-
-## Worked example
-
-A copy-pasteable trace for a four-card rally that runs partly in
-parallel and partly serial. Each step is a literal command.
-
-```bash
-# 1. Validate candidates (thin-card guard) — refuse if any has <3 scenarios
-for CARD in .orbit/cards/0021-foo.yaml .orbit/cards/0022-bar.yaml \
-            .orbit/cards/0023-baz.yaml .orbit/cards/0024-quux.yaml; do
-  python3 -c "
-import yaml
-with open('$CARD') as f:
-    n = len(yaml.safe_load(f).get('scenarios', []))
-assert n >= 3, f'BLOCKED: $CARD has {n} scenarios; rally requires ≥3'
-"
-done
-
-# 2. Create rally folder + rally.yaml (after AskUserQuestion approve-all)
-RALLY_DIR=".orbit/specs/$(date -I)-pipeline-readiness-rally"
-mkdir -p "$RALLY_DIR"
-
-# 3. Promote cards + write rally.yaml
-declare -a CHILDREN_YAML
-for CARD in .orbit/cards/0021-foo.yaml .orbit/cards/0022-bar.yaml \
-            .orbit/cards/0023-baz.yaml .orbit/cards/0024-quux.yaml; do
-  CARD_SLUG=$(basename "$CARD" .yaml)
-  SPEC_ID=$(plugins/orb/scripts/promote.sh "$CARD")
-  CHILDREN_YAML+=("- card_path: $CARD")
-  CHILDREN_YAML+=("  spec_id: $SPEC_ID")
-  CHILDREN_YAML+=("  branch: rally/${CARD_SLUG#*-}")
-  CHILDREN_YAML+=("  spec_dir: .orbit/specs/$SPEC_ID")
-  CHILDREN_YAML+=("  card_phase: proposed")
-  CHILDREN_YAML+=("  dep_predecessors: []")
-  CHILDREN_YAML+=("  worktree: null")
-  CHILDREN_YAML+=("  rally_dir: $RALLY_DIR")
-done
-
-cat > "$RALLY_DIR/rally.yaml" <<EOF
-goal: pipeline runtime readiness
-autonomy: guided
-phase: approved
-started: $(date -Iseconds)
-completed: null
-folder: $RALLY_DIR
-children:
-$(printf '%s\n' "${CHILDREN_YAML[@]}")
-EOF
-
-# 4. Stage 2 — launch decision-pack sub-agents in parallel
-# Update rally.yaml: phase: designing
-# (one Agent call per child in a single message; each writes <spec_dir>/decisions.md)
-# Verify each return via three-primitive snapshot diff.
-
-# 5. Stage 3 — consolidated decision gate (AskUserQuestion per card)
-# Re-launch sub-agents to write <spec_dir>/interview.md per card
-# Update rally.yaml: phase: design-review
-
-# 6. Stage 4 — disjointness check
-# Suppose foo + bar share a trait; baz + quux are disjoint.
-# Update rally.yaml: children[bar].dep_predecessors: [foo-spec-id]
-# (no edges between baz and quux — they run parallel)
-# Update rally.yaml: phase: implementing
-
-# 7. Stage 5 — implementation queue
-# Initial claimable set: foo, baz, quux (bar is blocked by foo)
-# Launch sub-agents for foo, baz, quux in parallel via Agent run_in_background.
-# Each runs /orb:drive <spec-id> in a worktree.
-
-# 8. As foo closes, claimable-set rule surfaces bar.
-# Lead launches a sub-agent for bar.
-
-# 9. Suppose quux's drive escalates — sub-agent returns:
-#   { "verdict": "parked", "reason_label": "review_converged", "reason": "...", "spec_dir": "..." }
-orbit spec note <quux-spec-id> "PARKED: [review_converged] review converged on REQUEST_CHANGES after 3 iterations"
-orbit spec close <quux-spec-id>
-# Update rally.yaml: children[quux].card_phase: parked
-
-# 10. Stage 6 — PR strategy
-# foo + bar: stacked (rally/bar PR targets rally/foo)
-# baz: standalone PR (target main)
-# quux: parked, no PR
-
-# 11. Stage 7 — completion when all children closed/parked
-# Update rally.yaml: phase: complete, completed: $(date -Iseconds)
-```
+5. **Announce the resumption** in one block: rally goal, folder,
+   phase, child counts (proposed / complete / parked / in progress),
+   and per-child resume points (spec id, worktree, drive stage if
+   implementing).
 
 ---
 
