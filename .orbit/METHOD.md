@@ -22,10 +22,10 @@ Variants:
 | Memo       | `.orbit/cards/memos/<date>-<slug>.md`            | Raw idea awaiting distillation. Freeform markdown. Deleted after promotion to a card.   |
 | Choice     | `.orbit/choices/NNNN-<slug>.yaml`                | MADR record of an architectural choice — *how* a capability is implemented.             |
 | Spec       | `.orbit/specs/<date>-<slug>.yaml`                | A discrete unit of work with numbered acceptance criteria. One card may spawn many.     |
-| Interview  | `.orbit/specs/<date>-<slug>/interview.md`        | Q&A record from a `/design` or `/discovery` session. Feeds the spec.                    |
+| Interview  | `.orbit/specs/<date>-<slug>.interview.md`        | Q&A record from a `/design` or `/discovery` session. Feeds the spec.                    |
 | Review     | `.orbit/specs/<date>-<slug>.review-{spec,pr}-<date>.md` | Verdict artefact from `/review-spec` or `/review-pr`.                            |
-| Drive state| `.orbit/specs/<date>-<slug>/drive.yaml`          | Durable orchestration state for a single-card drive.                                    |
-| Rally state| `.orbit/specs/<date>-<slug>-rally/rally.yaml`    | Durable orchestration state for a multi-card rally.                                     |
+| Drive state| `.orbit/specs/<date>-<slug>.drive.yaml`          | Durable orchestration state for a single-card drive.                                    |
+| Rally state| `.orbit/specs/<date>-<slug>-rally.rally.yaml`    | Durable orchestration state for a multi-card rally.                                     |
 
 ## When someone asks to "make a card for X"
 

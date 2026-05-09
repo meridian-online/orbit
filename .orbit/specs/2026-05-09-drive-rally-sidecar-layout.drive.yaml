@@ -1,0 +1,27 @@
+spec_id: 2026-05-09-drive-rally-sidecar-layout
+card_path: /home/hugh/github/hughcameron/orbit/.orbit/cards/0005-drive.yaml
+autonomy: guided
+iteration: 1
+stage: review-pr
+review_spec_cycle: 3
+review_spec_date: 2026-05-09
+review_pr_cycle: 0
+review_pr_date: 2026-05-09
+iteration_history: []
+notes:
+  - "Spec-bootstrap drive (not from /orb:promote). Primary card is 0005-drive; spec also links 0006-rally because layout migration is one substrate-wide change (per spec note 2026-05-09T03:35:36)."
+  - "Folder layout used for drive.yaml because the canonicaliser parses .orbit/specs/<id>.drive.yaml as a malformed spec — exactly the bug this spec migrates away from. Dogfooding the new layout would crash the very tool we use to drive it."
+deviations:
+  - rule: "drive/SKILL.md §1.6 — cycle-3 REQUEST_CHANGES converts to synthetic BLOCK"
+    cycle: 3
+    actual_verdict: REQUEST_CHANGES
+    treated_as: APPROVE (effective)
+    rationale: |
+      Cycle-3 reviewer (review-spec-2026-05-09-v3.md) explicitly stated "The HIGH-severity bar is not crossed in v3" and "this spec is implementable in one drive session with deterministic verifications" once the three polish items land. Findings:
+        - MEDIUM: bundled plugins/orb/skills/setup/METHOD.md not covered by AC-08 → fixed by adding AC-08 (d) sub-bullet.
+        - MEDIUM: AC-07 invokes "snippets" not standalone callables → fixed by naming path-shape strategy + scope note.
+        - LOW: AC-04 cites brittle §1.1/§1.3/§3.1/§3.2 numbers → fixed by adding grep verification.
+      Synthesising the canonical constraint string ("findings have not been addressable within budget") would have been false — findings were addressable, the reviewer enumerated the fixes. NO-GO + iter-2 spawning a fresh spec to apply terminology fixes was high process cost for ~zero information gain.
+    precedent: ".orbit/specs/2026-05-09-orbit-method-md/drive.yaml — same pattern, same call (handoff note 0019: 'applied polish-tier fixes inline rather than NO-GO + new iteration')."
+    author_approval: "Hugh approved option B in session 2026-05-09 (drive resumption from handoff 0019-next-steps)."
+    follow_up: "Pattern recurring; consider promoting polish-tier RC handling to /orb:drive SKILL.md as a follow-up spec under card 0005-drive."

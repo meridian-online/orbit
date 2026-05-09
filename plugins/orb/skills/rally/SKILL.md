@@ -11,7 +11,7 @@ Drive **multiple** independent cards through the orbit pipeline as a coordinated
 
 ```
 /orb:rally <goal_string> [guided|supervised]   # fresh rally from a goal
-/orb:rally <rally-folder>                      # resume an existing rally
+/orb:rally <rally-id>                          # resume an existing rally (id matches `<date>-<slug>-rally`)
 /orb:rally                                     # resume the unique in-progress rally, if any
 ```
 
@@ -46,18 +46,19 @@ proceeds in three branches:
    Run §pre-flight (scan-for-active-rally + thin-card guard), then
    §Stage 1 (Proposal).
 
-2. **Rally folder provided** (`/orb:rally <rally-folder>`). Validate
-   that the folder contains `rally.yaml` and its `phase` is not
+2. **Rally id provided** (`/orb:rally <rally-id>`, where the id
+   matches `<date>-<slug>-rally`). Validate that
+   `.orbit/specs/<rally-id>.rally.yaml` exists and its `phase` is not
    `complete`; if not, halt and instruct the agent to start a fresh
-   rally. Otherwise, resume from the phase named in `rally.yaml.phase`.
+   rally. Otherwise, resume from the phase named in `phase` field.
 
 3. **No argument** — query for in-progress rallies:
 
    ```bash
-   for f in .orbit/specs/*-rally/rally.yaml; do
+   for f in .orbit/specs/*.rally.yaml; do
      [[ -f "$f" ]] || continue
      phase=$(yq -r '.phase // ""' "$f")
-     [[ "$phase" != "complete" && -n "$phase" ]] && dirname "$f"
+     [[ "$phase" != "complete" && -n "$phase" ]] && basename "$f" .rally.yaml
    done
    ```
 
@@ -65,7 +66,7 @@ proceeds in three branches:
    - **Zero matches** → halt with usage (a goal string is required to
      start a fresh rally).
    - **Multiple matches** → halt and instruct the agent to pass the
-     rally folder explicitly, listing the candidates.
+     rally id explicitly, listing the candidates.
 
 ## Pre-flight
 
@@ -202,19 +203,16 @@ agent's scan proposes; the author's approval qualifies. Do not attempt
 a lightweight heuristic disjointness check — the definitive check
 happens after designs exist (§Stage 4).
 
-### Create the rally folder, rally.yaml, and child specs
+### Create the rally sidecar and child specs
 
 On `approve-all`:
 
 ```bash
-# 1. Derive a rally slug from the goal string
+# 1. Derive a rally slug and id from the goal string
 SLUG=$(echo "<goal string>" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//' | cut -c1-40)
+RALLY_ID="$(date -I)-${SLUG}-rally"
 
-# 2. Create the rally folder
-RALLY_DIR=".orbit/specs/$(date -I)-${SLUG}-rally"
-mkdir -p "$RALLY_DIR"
-
-# 3. Promote each card to a spec
+# 2. Promote each card to a spec
 declare -a CHILDREN_YAML
 for CARD in "${APPROVED_CARDS[@]}"; do
   CARD_SLUG=$(basename "$CARD" .yaml)
@@ -222,25 +220,29 @@ for CARD in "${APPROVED_CARDS[@]}"; do
   CHILDREN_YAML+=("- card_path: $CARD")
   CHILDREN_YAML+=("  spec_id: $SPEC_ID")
   CHILDREN_YAML+=("  branch: rally/${CARD_SLUG#*-}")
-  CHILDREN_YAML+=("  spec_dir: .orbit/specs/$SPEC_ID")
   CHILDREN_YAML+=("  card_phase: proposed")
   CHILDREN_YAML+=("  dep_predecessors: []")
   CHILDREN_YAML+=("  worktree: null")
-  CHILDREN_YAML+=("  rally_dir: $RALLY_DIR")
+  CHILDREN_YAML+=("  rally_id: $RALLY_ID")
 done
 
-# 4. Write rally.yaml
-cat > "$RALLY_DIR/rally.yaml" <<EOF
+# 3. Write the rally sidecar at .orbit/specs/<rally-id>.rally.yaml
+cat > ".orbit/specs/$RALLY_ID.rally.yaml" <<EOF
+rally_id: $RALLY_ID
 goal: <goal string>
 autonomy: <guided|supervised>
 phase: approved
 started: $(date -Iseconds)
 completed: null
-folder: $RALLY_DIR
 children:
 $(printf '%s\n' "${CHILDREN_YAML[@]}")
 EOF
 ```
+
+Per-child design artefacts (decisions.md, interview.md) are written as
+sidecars at `.orbit/specs/<child-spec-id>.decisions.md` and
+`.orbit/specs/<child-spec-id>.interview.md`. The rally itself does not
+create folders.
 
 The `phase` field advances through: `approved` → `designing` →
 `design-review` → `implementing` → `complete`. Each transition is a
@@ -287,8 +289,9 @@ You are a design analyst for card <card_path> (spec <child-spec-id>).
 Produce a decision pack.
 
 Read your spec via `orbit --json spec show <child-spec-id>` to confirm
-the card linkage, then read your spec_dir from rally.yaml children
-entry. (Convention: <spec_dir> = .orbit/specs/<child-spec-id>.)
+the card linkage. The two sidecar paths you may write to are:
+  - decisions: `.orbit/specs/<child-spec-id>.decisions.md`
+  - interview: `.orbit/specs/<child-spec-id>.interview.md` (Stage 3 re-launch)
 
 Your job:
 1. Read the card (<card_path>) and its references
@@ -305,13 +308,14 @@ For each decision, produce:
 
 Do NOT run interactive Q&A. Do NOT call AskUserQuestion. You produce a written decision pack that the lead agent will present to the author.
 
-Write your decision pack to: <spec_dir>/decisions.md
-Do NOT write outside <spec_dir>.
+Write your decision pack to: `.orbit/specs/<child-spec-id>.decisions.md`
+Do NOT write to any path other than the two named sidecars above.
 
-Do NOT read or write any rally-coordination state. The lead owns rally.yaml exclusively.
+Do NOT read or write any rally-coordination state. The lead owns the
+rally sidecar (`.orbit/specs/<rally-id>.rally.yaml`) exclusively.
 
 When done, return a JSON object with this shape (and nothing else):
-  { "files": ["<spec_dir>/decisions.md", ...any other paths you wrote...] }
+  { "files": [".orbit/specs/<child-spec-id>.decisions.md", ...any other paths you wrote...] }
 ```
 
 **Path discipline is trust + post-verify.** The brief names the target
@@ -335,21 +339,24 @@ After the sub-agent returns, the lead runs all three checks:
 1. **Self-report (contract):** parse the sub-agent's returned JSON
    `files` list. If the JSON is missing or malformed, reject.
 2. **Artefact assertion (completeness):** assert
-   `<spec_dir>/decisions.md` exists; assert every path in the returned
-   list is under `<spec_dir>`.
+   `.orbit/specs/<child-spec-id>.decisions.md` exists; assert every
+   path in the returned list matches one of the two named sidecars
+   (`<child-spec-id>.decisions.md` or `<child-spec-id>.interview.md`).
 3. **Snapshot diff (independent verification):** capture a
    post-snapshot (`git status --porcelain`) and compute the set
    difference `post \ pre`. Any entry in that difference that is not
-   under `<spec_dir>` rejects the sub-agent's output. There is no
-   lead-owned allowlist beyond the spec dir — rally state lives in
-   `rally.yaml`, which the lead alone touches. Entries present in both
-   pre and post are pre-existing lead-side state and are ignored.
+   one of the two named sidecars rejects the sub-agent's output. There
+   is no lead-owned allowlist beyond those two sidecars — rally state
+   lives in the rally sidecar `.orbit/specs/<rally-id>.rally.yaml`,
+   which the lead alone touches. Entries present in both pre and post
+   are pre-existing lead-side state and are ignored.
 
 On the **first** violation: re-brief the same sub-agent with an
 explicit path warning naming the offending entry (e.g. `your previous
-return created 'plugins/orb/scratch.md' outside <spec_dir>; do not
-write outside <spec_dir>`). This re-brief is a **pre-qualification
-retry** — NOT a rally-level strike.
+return created 'plugins/orb/scratch.md' which is not one of the two
+named sidecars; write only to .orbit/specs/<child-spec-id>.decisions.md
+or .orbit/specs/<child-spec-id>.interview.md`). This re-brief is a
+**pre-qualification retry** — NOT a rally-level strike.
 
 On the **second** violation for the same card: park via the
 `rally.yaml.children[].card_phase=parked` + `orbit spec note + orbit
@@ -410,9 +417,9 @@ flow into the interview.
 
 Re-launch each sub-agent (or have the lead agent write directly —
 whichever is cheaper) with its decisions + the author's
-approvals/overrides. The sub-agent writes `<spec_dir>/interview.md`
-following the design skill's interview record format, reflecting the
-approved decisions.
+approvals/overrides. The sub-agent writes
+`.orbit/specs/<child-spec-id>.interview.md` following the design
+skill's interview record format, reflecting the approved decisions.
 
 Re-launched sub-agents are subject to the same three-primitive
 verification as §2c (first violation → re-brief retry; second
@@ -428,11 +435,11 @@ session:
 ```
 ## Consolidated Design Review — <N> cards
 
-1. Card: <name> — <spec_dir>/interview.md (spec: <child-spec-id>)
+1. Card: <name> — .orbit/specs/<child-spec-id>.interview.md
    Goal: <goal>
    Key decisions: <one-liners>
 
-2. Card: <name> — <spec_dir>/interview.md (spec: <child-spec-id>)
+2. Card: <name> — .orbit/specs/<child-spec-id>.interview.md
    Goal: <goal>
    Key decisions: <one-liners>
 ```
@@ -499,15 +506,16 @@ parallel queue structure — the children array IS the queue.
 
 ### 5a. Commit interviews to rally branches
 
-For each non-parked child, commit `<spec_dir>/interview.md` to the
-card's rally branch as a clean first commit. This is git hygiene —
-the rally branch tells the card's story in chronological order — and
-is independent of how `/orb:drive` resumes.
+For each non-parked child, commit
+`.orbit/specs/<child-spec-id>.interview.md` to the card's rally branch
+as a clean first commit. This is git hygiene — the rally branch tells
+the card's story in chronological order — and is independent of how
+`/orb:drive` resumes.
 
 ```bash
 # on main
 git checkout -b rally/<slug>            # or: git checkout rally/<slug>
-git add <spec_dir>/interview.md
+git add ".orbit/specs/${CHILD_SPEC}.interview.md"
 git commit -m "rally/<slug>: approved design"
 git checkout main
 ```
@@ -526,7 +534,7 @@ exactly one card at a time. The lead loops:
 - Update `rally.yaml`: `children[NEXT].card_phase=implementing,
   worktree=main`.
 - Resolve the branch with
-  `BRANCH=$(yq -r ".children[] | select(.spec_id == \"$NEXT\") | .branch" "$RALLY_DIR/rally.yaml")`.
+  `BRANCH=$(yq -r ".children[] | select(.spec_id == \"$NEXT\") | .branch" ".orbit/specs/${RALLY_ID}.rally.yaml")`.
 - Check out the branch, run `/orb:drive <NEXT>` (which resumes from
   drive.yaml's stage and closes the spec on APPROVE), then return to
   main.
@@ -547,7 +555,7 @@ concurrently, each in its own git worktree.
 For each card:
 
 ```bash
-SLUG=$(yq -r ".children[] | select(.spec_id == \"$CHILD_SPEC\") | .branch" "$RALLY_DIR/rally.yaml" | awk -F/ '{print $NF}')
+SLUG=$(yq -r ".children[] | select(.spec_id == \"$CHILD_SPEC\") | .branch" ".orbit/specs/${RALLY_ID}.rally.yaml" | awk -F/ '{print $NF}')
 WORKTREE_PATH="$(realpath ..)/$(basename "$(pwd)")-rally-$SLUG"
 git worktree add "$WORKTREE_PATH" "rally/$SLUG"
 # Update rally.yaml: children[CHILD_SPEC].card_phase=implementing, worktree=$WORKTREE_PATH
@@ -562,22 +570,22 @@ with `run_in_background: true`:
 You are an implementation agent for spec <child-spec-id>. Your working
 directory is <worktree path>. Run `/orb:drive <child-spec-id>` inside
 that worktree. Drive will:
-  1. Resume from .orbit/specs/<child-spec-id>/drive.yaml stage (or initialise it if absent)
+  1. Resume from .orbit/specs/<child-spec-id>.drive.yaml stage (or initialise it if absent)
   2. Run review-spec → implement → review-pr internally as forked Agents
   3. Close the spec via orbit spec close on APPROVE
   4. Or escalate if iteration / review budgets exhaust
 
-Do NOT read or write rally.yaml. The lead owns rally.yaml exclusively.
-You may read your own spec via `orbit --json spec show <child-spec-id>`
-and update your own .orbit/specs/<child-spec-id>/drive.yaml as drive
-normally does.
+Do NOT read or write the rally sidecar. The lead owns
+`.orbit/specs/<rally-id>.rally.yaml` exclusively. You may read your own
+spec via `orbit --json spec show <child-spec-id>` and update your own
+`.orbit/specs/<child-spec-id>.drive.yaml` as drive normally does.
 
 When drive completes (APPROVE at review-pr), return a JSON object:
-  { "verdict": "complete", "pr": "<pr-number-or-url>", "spec_dir": "<spec_dir>" }
+  { "verdict": "complete", "pr": "<pr-number-or-url>", "spec_id": "<child-spec-id>" }
 
 If drive escalates, return:
   { "verdict": "parked", "reason_label": "<label>", "reason": "<one-line>",
-    "spec_dir": "<spec_dir>" }
+    "spec_id": "<child-spec-id>" }
 
 where `reason_label` is one of the six fixed tokens (see §NO-GO):
   budget | recurring_failure | contradicted_hypothesis | diminishing_signal | review_converged | tool_surface_incomplete
@@ -643,7 +651,7 @@ retrying one card while others wait defeats the purpose.
 
 Drive escalations from a sub-agent surface as the parked-verdict JSON
 defined in the §5c sub-agent brief (`{verdict, reason_label, reason,
-spec_dir}`). Rally lead converts that into:
+spec_id}`). Rally lead converts that into:
 
 ```bash
 orbit spec note <child-spec-id> "PARKED: [<reason_label>] <reason>"
@@ -710,7 +718,7 @@ presents them together:
 ## Rally PR Review — <N> PRs ready
 
 PR #201 — <card A feature>
-  Spec: <spec_dir>/spec.yaml (<N> ACs)
+  Spec: .orbit/specs/<child-spec-id>.yaml (<N> ACs)
   Files changed: <count>
   Review verdict: APPROVE — <one-line honest assessment>
 
@@ -755,11 +763,11 @@ When every entry in `rally.yaml.children` has `card_phase` either
    # rally.yaml: completed: $(date -Iseconds)
    ```
 
-3. **No archival step.** The rally folder (`<rally-folder>`) stays
-   where it is — its `rally.yaml`, decisions.md, and interview.md
-   files remain on disk as the design + orchestration record. When
-   the next rally begins, it creates its own folder alongside this
-   one.
+3. **No archival step.** The rally sidecar
+   (`.orbit/specs/<rally-id>.rally.yaml`) and the per-child
+   `.decisions.md` / `.interview.md` sidecars stay where they are —
+   they remain on disk as the design + orchestration record. When the
+   next rally begins, it writes its own sidecar alongside these.
 
 ## Critical Rules
 
@@ -768,12 +776,15 @@ what to do at each step; these rules describe what must always hold,
 and what must never happen, regardless of where in the rally you are.
 
 - **One active rally at a time.** Resolution refuses a fresh rally if
-  an in-progress rally folder exists. Children-graph orchestration
-  loses meaning if two rallies overlap on cards.
-- **rally.yaml is the single source of orchestration state.** No
-  rally-coordination data lives outside it. **Sub-agents never read
-  or write rally.yaml** — they read their own spec and update their
-  own drive.yaml. The lead alone touches rally.yaml.
+  an in-progress rally sidecar exists (matching `*.rally.yaml` with
+  `phase != complete`). Children-graph orchestration loses meaning if
+  two rallies overlap on cards.
+- **The rally sidecar is the single source of orchestration state.**
+  No rally-coordination data lives outside `.orbit/specs/<rally-id>.rally.yaml`.
+  **Sub-agents never read or write the rally sidecar** — they read
+  their own spec and update their own drive sidecar
+  (`.orbit/specs/<child-spec-id>.drive.yaml`). The lead alone touches
+  the rally sidecar.
 - **Sub-agent path discipline is trust + post-verify.** Claude Code
   does not provide tool-level path enforcement; the brief names the
   target directory as a contract, the lead verifies on return via the
@@ -791,24 +802,23 @@ and what must never happen, regardless of where in the rally you are.
 
 ## Resumption
 
-When `/orb:rally` is invoked with a rally folder (or detects an
+When `/orb:rally` is invoked with a rally id (or detects an
 in-progress rally per §Input contract):
 
-1. **Read rally.yaml:** `<rally-folder>/rally.yaml`. Extract:
+1. **Read the rally sidecar:** `.orbit/specs/<rally-id>.rally.yaml`. Extract:
    - `phase`
    - `autonomy`
    - `started`, `completed`
-   - `folder`
    - `children[]`
 
-2. **For each child:** the spec id, card_path, branch, spec_dir,
-   card_phase, dep_predecessors, worktree are all in the children
-   array. Cross-reference each child's spec status via `orbit spec
-   show <child-spec-id>` if a freshness check is needed (the spec
-   may have been closed since rally.yaml's last write).
+2. **For each child:** the spec id, card_path, branch, card_phase,
+   dep_predecessors, worktree are all in the children array.
+   Cross-reference each child's spec status via `orbit spec show
+   <child-spec-id>` if a freshness check is needed (the spec may have
+   been closed since the rally sidecar's last write).
 
-3. **Resume at the named phase.** rally.yaml is the source of truth —
-   there is no separate state to scan or reconcile.
+3. **Resume at the named phase.** The rally sidecar is the source of
+   truth — there is no separate state to scan or reconcile.
 
    | phase           | Resume at                                           |
    |-----------------|-----------------------------------------------------|
@@ -821,16 +831,16 @@ in-progress rally per §Input contract):
 4. **For implementing-phase resume:** the lead does not reconstruct
    per-card sub-stage from any side file — each implementing child
    resumes via `/orb:drive <child-spec-id>` which itself reads
-   `.orbit/specs/<child-spec-id>/drive.yaml`'s `stage` field. Rally's
+   `.orbit/specs/<child-spec-id>.drive.yaml`'s `stage` field. Rally's
    job at resume is only to (a) re-launch sub-agents for any child
    whose `card_phase=implementing` and whose spec is still open,
    (b) honour the claimable-set rule for serial flows, and (c) await
    completions for any sub-agent that was running before the session
    died.
 
-5. **Announce the resumption** in one block: rally goal, folder,
-   phase, child counts (proposed / complete / parked / in progress),
-   and per-child resume points (spec id, worktree, drive stage if
+5. **Announce the resumption** in one block: rally id, goal, phase,
+   child counts (proposed / complete / parked / in progress), and
+   per-child resume points (spec id, worktree, drive stage if
    implementing).
 
 ---

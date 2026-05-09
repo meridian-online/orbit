@@ -9,39 +9,43 @@ labels:
 - drive
 - rally
 acceptance_criteria:
-- id: ac-01
-  description: /orb:drive SKILL.md is updated so every read/write of the drive sidecar uses `.orbit/specs/<spec-id>.drive.yaml` instead of `.orbit/specs/<spec-id>/drive.yaml`. Every code block, every cited path, and every resumption-detection snippet uses the sidecar form. A grep of the file for `<spec-id>/drive.yaml`, `$SPEC_ID/drive.yaml`, or `<spec-folder>/drive.yaml` returns zero hits.
+- id: ac-00
+  description: 'The substrate scanner filters spec YAML loads to dotless-stem files only, excluding sidecar shapes (`<id>.drive.yaml`, `<id>.rally.yaml`, and any future `<id>.<sidecar>.yaml`). Concretely: `list_yaml_files` (or its successor) in `orbit-state/crates/core/src/layout.rs` either splits into a sidecar-aware variant or filters its existing output to paths whose stem contains no `.`. Both `verify_all` (`orbit-state/crates/core/src/verify.rs`) and `Index::rebuild_from_files` (`orbit-state/crates/core/src/index.rs`) consume the filtered list. A unit test in the same crate creates a temp `.orbit/specs/<id>.drive.yaml` containing arbitrary YAML and confirms (a) it is NOT parsed as a Spec, (b) `orbit verify` returns clean against the temp root, (c) `orbit spec list` succeeds and does not surface the sidecar as a spec id. This AC MUST land before any of ac-01/ac-03/ac-04/ac-05 — sidecar yaml on disk without the scanner fix bricks `orbit verify` and `orbit spec list`.'
   gate: true
-  checked: false
+  checked: true
+- id: ac-01
+  description: 'Every reference to the drive sidecar across the orb plugin uses `.orbit/specs/<spec-id>.drive.yaml` (sidecar form) rather than `.orbit/specs/<spec-id>/drive.yaml` (folder form). Three surfaces: (a) /orb:drive SKILL.md — every code block, cited path, resumption-detection snippet, and the embedded CronCreate heartbeat prompt body; (b) /orb:rally SKILL.md — every reference to a child spec''s drive sidecar (e.g. resumption guidance, sub-agent briefs); (c) any other file under `plugins/orb/` that mentions the drive sidecar path. Verification: `grep -rn -E ''<[^>]+>/drive\.yaml|\$[A-Z_]+/drive\.yaml'' plugins/orb/` returns zero hits.'
+  gate: true
+  checked: true
 - id: ac-02
   description: /orb:drive SKILL.md no longer references `.orbit/specs/<spec-id>/spec.yaml` for spec reads — all spec access goes through `orbit spec show <spec-id>` (which already resolves the flat `.orbit/specs/<spec-id>.yaml`). A grep for `<spec-id>/spec.yaml` or `$SPEC_ID/spec.yaml` in the file returns zero hits.
   gate: true
-  checked: false
+  checked: true
 - id: ac-03
-  description: /orb:rally SKILL.md is updated so every read/write of the rally sidecar uses `.orbit/specs/<rally-id>.rally.yaml` instead of `.orbit/specs/<rally-id>/rally.yaml`. A grep of the file for `<rally-id>/rally.yaml` or `$RALLY_ID/rally.yaml` returns zero hits.
+  description: '/orb:rally SKILL.md migrates from folder-as-rally to sidecar layout. Specifically: (a) every read/write of the rally sidecar uses `.orbit/specs/<rally-id>.rally.yaml` instead of `.orbit/specs/<rally-id>/rally.yaml`; (b) the rally folder (`RALLY_DIR=".orbit/specs/$(date -I)-${SLUG}-rally"`) is collapsed — rallies no longer create a folder; (c) the input contract''s "rally folder provided" branch becomes "rally-id provided" and accepts a bare id matching `<date>-<slug>-rally`; (d) the resumption scan iterates `.orbit/specs/*.rally.yaml` instead of `.orbit/specs/*-rally/rally.yaml`; (e) child specs continue to live as flat siblings under `.orbit/specs/` (no change — they already use `<id>.yaml`). A grep of the file for `<rally-id>/rally.yaml`, `$RALLY_ID/rally.yaml`, or `*-rally/rally.yaml` returns zero hits.'
   gate: true
-  checked: false
+  checked: true
 - id: ac-04
-  description: Per-cycle review files migrate from the folder layout (`.orbit/specs/<spec-id>/review-spec-<date>.md`, `.orbit/specs/<spec-id>/review-pr-<date>.md`, with `-v2`/`-v3` suffixes) to the sidecar layout (`.orbit/specs/<spec-id>.review-spec-<date>.md` etc.). /orb:drive SKILL.md §1.1, §1.3, §3.1, §3.2 and the review-spec / review-pr Agent briefs all cite the sidecar paths. The cycle-suffix convention (no suffix for cycle 1, `-v2` and `-v3` for later cycles) is preserved.
+  description: 'Per-cycle review files migrate from folder layout to sidecar layout across three surfaces: (a) /orb:drive SKILL.md — every cited review-file path uses the sidecar form (`.orbit/specs/<spec-id>.review-spec-<date>.md`, `.orbit/specs/<spec-id>.review-pr-<date>.md`); (b) the review-spec / review-pr Agent briefs in /orb:drive SKILL.md cite sidecar paths; (c) the inline-invocation defaults in `plugins/orb/skills/review-spec/SKILL.md` and `plugins/orb/skills/review-pr/SKILL.md` are rewritten to default to the sidecar path with no `<spec-folder>` branch and no `.orbit/reviews/` fallback. The cycle-suffix convention (no suffix for cycle 1, `-v2` and `-v3` for later cycles) is preserved across all three surfaces. Verification: `grep -rnE ''\.orbit/specs/<[^>]+>/review-(spec|pr)-'' plugins/orb/skills/drive/SKILL.md plugins/orb/skills/review-spec/SKILL.md plugins/orb/skills/review-pr/SKILL.md` returns zero hits.'
   gate: true
-  checked: false
+  checked: true
 - id: ac-05
-  description: Resumption logic in /orb:drive (§Resumption) is updated to detect drive sidecars via the new path. The "no argument" detection snippet in §Input contract is rewritten — instead of `[[ -f ".orbit/specs/$sid/drive.yaml" ]]`, it tests `[[ -f ".orbit/specs/$sid.drive.yaml" ]]`.
+  description: Resumption logic in /orb:drive (§Resumption) is updated to detect drive sidecars via the new path. The "no argument" detection snippet in §Input contract is rewritten — instead of `[[ -f ".orbit/specs/$sid/drive.yaml" ]]`, it tests `[[ -f ".orbit/specs/$sid.drive.yaml" ]]`. Verification of this AC requires ac-00 to have landed (otherwise the surrounding `orbit spec list` cascade fails).
   gate: true
-  checked: false
+  checked: true
 - id: ac-06
-  description: 'Existing on-disk folders (`.orbit/specs/<id>/` directories from drives/rallies that ran before this spec) are handled by an explicit policy recorded in a spec note: either (a) migrated in place to sidecar form, or (b) left untouched as historical artefacts and only new drives/rallies use the sidecar layout. The decision is recorded in the spec note before any migration touches the existing folders.'
+  description: 'Existing on-disk folders (`.orbit/specs/<id>/` directories from drives/rallies that ran before this spec) are left untouched as bd-era historical artefacts. New drives and rallies use the sidecar layout exclusively. This is the committed policy — option (b) from the prior framing — chosen because it is reversible and avoids touching the 11 existing folders at migration time (10 drive-folders + 1 rally-folder, verified via `find .orbit/specs -maxdepth 2 -name drive.yaml -o -name rally.yaml`). Verification: after ac-00 lands, `orbit verify` returns clean across the repo''s `.orbit/specs/` directory (the scanner-fix excludes the historical `<id>/drive.yaml` / `<id>/rally.yaml` from spec parsing because they are inside folders, not at `.orbit/specs/*.yaml`).'
   gate: false
-  checked: false
+  checked: true
 - id: ac-07
-  description: 'A smoke test runs end-to-end against a synthetic card under a temp `--root`: invoke promote.sh, write a drive.yaml at the sidecar path, then invoke /orb:drive''s resumption-detection snippet and confirm the drive is found. The test exits zero on a successful round-trip and is added to `plugins/orb/scripts/tests/`.'
+  description: 'A smoke test runs end-to-end against a synthetic card under a temp `--root` and covers both sidecar shapes plus scanner-fix integration. Steps: (a) invoke promote.sh, write a drive.yaml at the sidecar path `<spec-id>.drive.yaml`, then test path-shape detection — `[[ -f .orbit/specs/$sid.drive.yaml ]]` — confirming the path is reachable; (b) write a rally.yaml at `<rally-id>.rally.yaml`, then iterate the path-shape glob `for f in .orbit/specs/*.rally.yaml`, confirming the rally is reached; (c) run `orbit verify --root <temp>` and confirm clean exit (proves ac-00''s scanner-fix excludes both sidecar shapes); (d) run `orbit spec list --root <temp>` and confirm the sidecar ids are NOT surfaced as specs. The test exits zero on a successful round-trip and is added to `plugins/orb/scripts/tests/`. Scope note: the test verifies path SHAPE — i.e. that the substrate accepts the new sidecar paths and the scanner correctly excludes them — not the literal SKILL.md snippet bodies. A future spec may extract the resumption-detection snippets to callable scripts under `plugins/orb/scripts/` (e.g. `drive-resume-detect.sh`, `rally-resume-detect.sh`) to close that gap; out of scope for this spec.'
   gate: false
-  checked: false
+  checked: true
 - id: ac-08
-  description: '`.orbit/conventions/` documentation (or wherever the canonical layout is documented — e.g. orbit-state README, PRIME.md, or a dedicated layout doc) is updated to state the sidecar convention as the canonical orbit-state v0.1 layout: `.orbit/specs/<id>.<file>` for every per-spec sidecar (notes.jsonl, tasks.jsonl, drive.yaml, rally.yaml, review-spec-*, review-pr-*). The folder layout is named explicitly as deprecated bd-era.'
+  description: 'The canonical layout statement is consistent across four surfaces. (a) A new file `.orbit/conventions/spec-layout.md` exists and lists every per-spec sidecar shape: `<id>.yaml` (the spec itself), `<id>.tasks.jsonl`, `<id>.notes.jsonl`, `<id>.drive.yaml`, `<id>.rally.yaml`, `<id>.review-spec-<date>.md` (with `-v2`/`-v3` cycle suffixes), `<id>.review-pr-<date>.md` (with `-v2`/`-v3` cycle suffixes); the bd-era folder layout (`.orbit/specs/<id>/<file>`) is named explicitly as deprecated. (b) The in-source convention comment in `orbit-state/crates/core/src/layout.rs` either points to the new doc or duplicates its summary. (c) `.orbit/METHOD.md`''s vocabulary table is rewritten to sidecar form — the Drive state row becomes `.orbit/specs/<date>-<slug>.drive.yaml`, the Rally state row becomes `.orbit/specs/<date>-<slug>.rally.yaml`, and the Interview row is either updated to sidecar (`.orbit/specs/<date>-<slug>.interview.md`) or explicitly noted as a remaining folder artefact with rationale. The substantive check is that no row of the METHOD.md vocabulary table cites the bd-era folder form. (d) `plugins/orb/skills/setup/METHOD.md` mirrors the rewrite of `.orbit/METHOD.md` row-for-row — both files contain the same vocabulary table and must agree byte-for-byte. Verification: `diff .orbit/METHOD.md plugins/orb/skills/setup/METHOD.md` exits zero.'
   gate: false
-  checked: false
+  checked: true
 - id: ac-09
-  description: After this spec ships, a /orb:drive on a real card with ≥3 scenarios produces drive.yaml at `.orbit/specs/<spec-id>.drive.yaml` (verified by listing `.orbit/specs/` and confirming no new folder was created), resumes correctly via `/orb:drive` with no argument, and review-spec / review-pr files land at the sidecar paths. This is the integration test — recorded as a spec note with the spec id of the drive that proved it.
+  description: After this spec ships, a /orb:drive (or /orb:rally) against a pre-nominated card or spec produces drive.yaml at `.orbit/specs/<spec-id>.drive.yaml` (verified by listing `.orbit/specs/` and confirming no new folder was created), resumes correctly via `/orb:drive` with no argument, and review-spec / review-pr files land at the sidecar paths. The candidate must be named in a spec note BEFORE the SKILL.md edits land (ac-01..ac-05 done) — this pre-nomination is the implementer's first action on this spec, before any code or doc edits, so the variance-reduction is enforced by sequencing rather than by self-report. This is the integration test — recorded as a spec note with the id of the drive/rally that proved it.
   gate: false
-  checked: false
+  checked: true

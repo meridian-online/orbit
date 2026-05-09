@@ -7,8 +7,9 @@ description: Drive a card or spec through the orbit pipeline — promote → rev
 
 Take a card and an autonomy level. Drive the pipeline (promote →
 review-spec → implement → review-pr) as a single session. Drive state
-lives in `.orbit/specs/<spec-folder>/drive.yaml`; resumption reads that
-file. AC state lives in the spec's `acceptance_criteria` field.
+lives in `.orbit/specs/<spec-id>.drive.yaml` (sidecar layout —
+see `.orbit/conventions/spec-layout.md`); resumption reads that file.
+AC state lives in the spec's `acceptance_criteria` field.
 
 ## Usage
 
@@ -35,16 +36,16 @@ in three branches:
    the pre-flight thin-card refusal (below), then promote (§Promote).
 
 2. **Spec-id provided** (`/orb:drive <spec-id>`). Validate that the
-   spec has a `drive.yaml` sidecar; if not, halt and instruct the
-   agent to re-invoke with a card path. Otherwise, resume from the
-   stage named in `drive.yaml: stage`.
+   spec has a `<spec-id>.drive.yaml` sidecar; if not, halt and instruct
+   the agent to re-invoke with a card path. Otherwise, resume from the
+   stage named in the sidecar's `stage` field.
 
-3. **No argument** — query for open specs that have a `drive.yaml`:
+3. **No argument** — query for open specs that have a drive sidecar:
 
    ```bash
    orbit --json spec list --status open \
      | jq -r '.data.result.specs[].id' \
-     | while read -r sid; do [[ -f ".orbit/specs/$sid/drive.yaml" ]] && echo "$sid"; done
+     | while read -r sid; do [[ -f ".orbit/specs/$sid.drive.yaml" ]] && echo "$sid"; done
    ```
 
    - **Single match** → resume it.
@@ -77,14 +78,14 @@ Promote replaces the old Design + Spec stages.
 SPEC_ID=$(plugins/orb/scripts/promote.sh "<card_path>")
 ```
 
-`promote.sh` materialises a spec under `.orbit/specs/<spec-id>/spec.yaml`
-(folder layout) seeded from the card's scenarios as ACs. The returned
-`SPEC_ID` is the spec's id (matching the folder name).
+`promote.sh` materialises a spec at `.orbit/specs/<spec-id>.yaml` (flat
+sidecar layout — orbit-state v0.1) seeded from the card's scenarios as
+ACs. The returned `SPEC_ID` is the spec's id.
 
-Then write the drive sidecar:
+Then write the drive sidecar at `.orbit/specs/<spec-id>.drive.yaml`:
 
 ```bash
-cat > ".orbit/specs/$SPEC_ID/drive.yaml" <<EOF
+cat > ".orbit/specs/$SPEC_ID.drive.yaml" <<EOF
 spec_id: $SPEC_ID
 card_path: <absolute card_path>
 autonomy: <full|guided|supervised>
@@ -116,7 +117,7 @@ preserved.
 
 ```
 This is a drive heartbeat. Run `orbit --json spec show <spec-id>` and
-read its `status`. Read `.orbit/specs/<spec-id>/drive.yaml` and read
+read its `status`. Read `.orbit/specs/<spec-id>.drive.yaml` and read
 its `stage`.
 
 If status is `closed` (drive stage `complete` or `escalated`), call
@@ -128,9 +129,9 @@ Then stop. Do not emit a heartbeat line.
 
 Otherwise: run `plugins/orb/scripts/orbit-acceptance.sh next-ac
 <spec-id>` to find the current AC (if it returns nothing or stage is
-not `implement`, use `-`). Compute elapsed as mm:ss since drive.yaml's
-`started_at` field (set on the first heartbeat tick if absent). Emit
-exactly one line in the format:
+not `implement`, use `-`). Compute elapsed as mm:ss since the drive
+sidecar's `started_at` field (set on the first heartbeat tick if
+absent). Emit exactly one line in the format:
 
   drive: spec=<spec-id> stage=<stage> ac=<id|-> elapsed=<mm:ss>
 
@@ -161,11 +162,11 @@ Capture or reuse the date token:
   the whole stage so long-running drives don't split cycle files
   across date boundaries.
 
-Compute the output path:
+Compute the output path (sidecar layout):
 
-- **Cycle 1:** `.orbit/specs/<spec-id>/review-spec-<date>.md`
-- **Cycle 2:** `.orbit/specs/<spec-id>/review-spec-<date>-v2.md`
-- **Cycle 3:** `.orbit/specs/<spec-id>/review-spec-<date>-v3.md`
+- **Cycle 1:** `.orbit/specs/<spec-id>.review-spec-<date>.md`
+- **Cycle 2:** `.orbit/specs/<spec-id>.review-spec-<date>-v2.md`
+- **Cycle 3:** `.orbit/specs/<spec-id>.review-spec-<date>-v3.md`
 
 ### 1.2 Idempotent resumption check
 
@@ -330,11 +331,12 @@ intermediate artefact.
 
 ### 3.1 Compute the cycle-specific verdict path
 
-Using `review_pr_cycle` and `review_pr_date` from `drive.yaml`:
+Using `review_pr_cycle` and `review_pr_date` from `drive.yaml`
+(sidecar layout):
 
-- Cycle 1: `.orbit/specs/<spec-id>/review-pr-<date>.md`
-- Cycle 2: `.orbit/specs/<spec-id>/review-pr-<date>-v2.md`
-- Cycle 3: `.orbit/specs/<spec-id>/review-pr-<date>-v3.md`
+- Cycle 1: `.orbit/specs/<spec-id>.review-pr-<date>.md`
+- Cycle 2: `.orbit/specs/<spec-id>.review-pr-<date>-v2.md`
+- Cycle 3: `.orbit/specs/<spec-id>.review-pr-<date>-v3.md`
 
 ### 3.2 Idempotent resumption check, fork launch, verdict parse
 
@@ -510,10 +512,10 @@ synthetic BLOCK) or was rejected at a supervised gate.
    $CONSTRAINTS"
    ```
 
-6. **Seed the new spec's drive.yaml (incremented iteration, fresh
+6. **Seed the new spec's drive sidecar (incremented iteration, fresh
    review cycles, prior history populated):**
    ```bash
-   cat > ".orbit/specs/$NEW_SPEC/drive.yaml" <<EOF
+   cat > ".orbit/specs/$NEW_SPEC.drive.yaml" <<EOF
    spec_id: $NEW_SPEC
    card_path: <card_path>
    autonomy: <level>
@@ -651,7 +653,7 @@ what to do at each step; these rules describe what must always hold.
 When `/orb:drive` is invoked with a spec-id (or detects an in-progress
 drive per §Input contract):
 
-1. **Read drive.yaml:** `.orbit/specs/<spec-id>/drive.yaml`. Extract:
+1. **Read the drive sidecar:** `.orbit/specs/<spec-id>.drive.yaml`. Extract:
    - `stage`
    - `iteration`
    - `review_spec_cycle`, `review_pr_cycle`

@@ -141,7 +141,7 @@ The header line `**Verdict:** APPROVE | REQUEST_CHANGES | BLOCK` is a **contract
 
 ### Output path (invoked inline vs forked)
 
-- **Inline invocation** (a human running `/orb:review-spec <spec-id>` directly): save to the default path `.orbit/specs/<spec-folder>/review-spec-<date>.md` if the spec is folder-shaped, otherwise `.orbit/reviews/<spec-id>/review-spec-<date>.md`.
+- **Inline invocation** (a human running `/orb:review-spec <spec-id>` directly): save to the default sidecar path `.orbit/specs/<spec-id>.review-spec-<date>.md`. For re-reviews on the same date, append `-v2`, `-v3` cycle suffixes (`<spec-id>.review-spec-<date>-v2.md`).
 - **Forked-Agent invocation** (e.g. launched by `/orb:drive`): the invoking agent's brief will supply an explicit output path — **use the brief's path verbatim**. It takes precedence over the default. Drive uses cycle-ordinal suffixes (`-v2.md`, `-v3.md`) to disambiguate REQUEST_CHANGES cycles; writing to the default path when the brief specified a cycle-specific path will cause drive to report the review as missing and trigger a retry.
 
 ## Verdicts

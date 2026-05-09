@@ -3,19 +3,31 @@
 //! Single source of truth for where each entity type lives on disk. Paths are
 //! relative to a root that the caller supplies (typically the repo root).
 //!
-//! Layout (per card 0008 + ac-20):
+//! Layout (per card 0008 + ac-20). See `.orbit/conventions/spec-layout.md`
+//! for the canonical sidecar inventory; the rule below is its mechanical
+//! enforcement.
+//!
 //! ```text
 //! .orbit/
 //!   schema-version       (substrate-written, gitignored)
 //!   state.db             (derived index, gitignored)
 //!   locks/               (lock files, gitignored)
-//!   specs/<id>.yaml      (substrate-written, tracked)
-//!   specs/<id>.tasks.jsonl (append-only events, tracked)
+//!   specs/<id>.yaml      (substrate-written, tracked) — primary spec
+//!   specs/<id>.tasks.jsonl       (append-only events, tracked)
+//!   specs/<id>.notes.jsonl       (append-only notes, tracked)
+//!   specs/<id>.drive.yaml        (drive sidecar, tracked)
+//!   specs/<id>.rally.yaml        (rally sidecar, tracked)
+//!   specs/<id>.review-spec-<date>.md   (review artefact, tracked)
+//!   specs/<id>.review-pr-<date>.md     (review artefact, tracked)
 //!   cards/<slug>.yaml    (human-written, tracked)
 //!   cards/memos/         (memos awaiting distillation, tracked)
 //!   choices/<slug>.yaml  (human-written, tracked)
 //!   memories/<slug>.yaml (substrate-written, tracked)
 //! ```
+//!
+//! Spec files are loaded from `specs/*.yaml` filtered to dotless stems.
+//! `<id>.drive.yaml` and `<id>.rally.yaml` are sidecars, not specs — the
+//! scanner skips them because their file stems contain a `.`.
 
 use std::path::{Path, PathBuf};
 
@@ -137,9 +149,22 @@ fn list_yaml_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("yaml") {
-            out.push(path);
+        if path.extension().and_then(|e| e.to_str()) != Some("yaml") {
+            continue;
         }
+        // Dotless-stem filter: `0001.yaml` keeps; `0001.drive.yaml` skips
+        // (its stem `0001.drive` contains a dot). This excludes sidecar
+        // shapes like `<id>.drive.yaml` / `<id>.rally.yaml` from primary
+        // entity loads (specs/cards/choices/memories) — see the layout
+        // doc-comment at the top of this file.
+        let stem_has_dot = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.contains('.'));
+        if stem_has_dot {
+            continue;
+        }
+        out.push(path);
     }
     out.sort();
     Ok(out)
@@ -212,6 +237,35 @@ mod tests {
         let files = layout.list_spec_files().unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].file_name().unwrap(), "0001.yaml");
+    }
+
+    #[test]
+    fn list_spec_files_skips_sidecar_shapes() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        // Primary spec
+        std::fs::write(layout.spec_file("2026-05-09-foo"), "id: '2026-05-09-foo'\n").unwrap();
+        // Sidecars — must NOT be returned by list_spec_files
+        std::fs::write(
+            layout.specs_dir().join("2026-05-09-foo.drive.yaml"),
+            "spec_id: '2026-05-09-foo'\nstage: review-spec\n",
+        )
+        .unwrap();
+        std::fs::write(
+            layout.specs_dir().join("2026-05-09-bar.rally.yaml"),
+            "rally_id: '2026-05-09-bar'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            layout.specs_dir().join("2026-05-09-foo.review-spec-2026-05-09.md"),
+            "# Review",
+        )
+        .unwrap();
+
+        let files = layout.list_spec_files().unwrap();
+        assert_eq!(files.len(), 1, "only the dotless-stem yaml should be returned");
+        assert_eq!(files[0].file_name().unwrap(), "2026-05-09-foo.yaml");
     }
 
     #[test]
