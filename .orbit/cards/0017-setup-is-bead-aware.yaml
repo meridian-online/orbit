@@ -18,7 +18,17 @@ scenarios:
 - name: Greenfield setup creates .orbit/ layout and initialises state in one pass
   given: a project with no .orbit/ directory and no prior orbit artefacts
   when: the user runs /orb:setup
-  then: setup creates .orbit/cards/, .orbit/choices/, .orbit/specs/, .orbit/cards/memos/; runs orbit init to scaffold the SQLite index and ship .orbit/.gitignore; writes the CLAUDE.md vocabulary block — all in a single idempotent pass
+  then: setup creates .orbit/cards/, .orbit/choices/, .orbit/specs/, .orbit/cards/memos/; runs orbit init to scaffold the SQLite index and ship .orbit/.gitignore; writes `.orbit/METHOD.md` (canonical orbit method overview) and ensures CLAUDE.md @-imports it — all in a single idempotent pass
+  gate: false
+- name: METHOD.md drift triggers prompt on re-run, never silent overwrite
+  given: a project where /orb:setup has been run, then either the canonical METHOD.md (in the plugin) or the project's `.orbit/METHOD.md` has been edited
+  when: the user re-runs /orb:setup
+  then: setup compares byte-for-byte (including the top-of-file 'How to update' line); on mismatch it prompts before overwriting; on match it no-ops silently — the project copy is never replaced without explicit consent
+  gate: false
+- name: Legacy CLAUDE.md blocks trigger atomic migrate-or-refuse prompt
+  given: 'a project whose CLAUDE.md still contains pre-METHOD.md inline blocks (## Workflow (orbit) / ## Orbit vocabulary / ## Current Sprint)'
+  when: the user runs /orb:setup
+  then: setup detects the legacy markers, prompts to remove them in the same transaction as adding the @-import; on accept both edits land atomically; on decline setup REFUSES the entire operation (no METHOD.md copy, no @-import added) with a recovery message — there is no path to dual-source drift
   gate: false
 - name: Brownfield with orbit/ but no .orbit/ prompts before migrating
   given: a project that already has .orbit/cards, .orbit/choices, .orbit/specs from a pre-orbit-state version
@@ -49,6 +59,9 @@ relations:
 - card: 0020-orbit-state
   type: depends-on
   reason: setup runs orbit init under the hood; without orbit-state the setup pathway has no implementation
+- card: 0028-four-pillars
+  type: feeds
+  reason: setup primes downstream project CLAUDE.md with the canonical METHOD.md so new agents in any orbit-using repo learn the substrate without re-discovering it — the load-bearing wire for pillar 2 (agent self-learning)
 references:
 - 'plugins/orb/skills/setup/SKILL.md: current setup skill — handles orbit/ layout and CLAUDE.md vocabulary; needs orbit-state awareness rewrite'
 - '.orbit/choices/0015-orbit-state-architecture.md: substrate decision that makes setup-without-orbit-state a non-state'

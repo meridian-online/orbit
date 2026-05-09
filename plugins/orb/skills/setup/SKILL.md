@@ -125,63 +125,60 @@ The orbit/ layout is already in place. The filesystem needs no changes:
 
 **Still run §6's CLAUDE.md check** — an author on a newer plugin version may have an older snippet that lacks the vocabulary glossary. §6 detects this and offers a targeted migration. If no migration is needed (or the author declines), tell the author setup is already complete and offer `/orb:card`.
 
-### 6. CLAUDE.md Snippet: Append or Migrate
+### 6. METHOD.md: Copy and Import
 
-Check for the marker `## Workflow (orbit)` in `CLAUDE.md`.
+The canonical orbit method overview lives at `plugins/orb/skills/setup/METHOD.md` (in the plugin source). Setup copies it into the project and ensures CLAUDE.md @-imports it. METHOD.md is the single source of truth for vocabulary, pipeline, substrate rules, four pillars, and the BLUF prose contract — never inline that content into CLAUDE.md.
 
-**Case A — marker absent (or file missing):** append the full snippet below (create `CLAUDE.md` if needed).
-
-**Case B — marker present, vocabulary missing:** the CLAUDE.md has a pre-vocabulary snippet. Detect this by both conditions holding:
-
-- The line `Artefacts live in \`.orbit/cards/\`, \`.orbit/specs/\`, and \`.orbit/choices/\`.` is present under the marker
-- No `## Orbit vocabulary` heading exists between `## Workflow (orbit)` and the next top-level section
-
-Offer a single migration prompt:
+The operations in 6a/6b/6c below are also implemented as a single shell script for one-step execution and testing:
 
 ```
-orbit: CLAUDE.md has the old workflow snippet, missing the vocabulary glossary.
+plugins/orb/scripts/setup-method.sh --project-root <project>
+```
+
+The script performs the same steps in the same order with the same atomic semantics. Use it directly for non-interactive runs (the script supports `--answer-legacy y|n` and `--answer-drift y|n` for scripted contexts).
+
+Run the steps below **in order**. Legacy detection runs before any file is written so a refused migration leaves no orphan METHOD.md.
+
+**6a. Legacy-CLAUDE.md detection (atomic).** Scan `CLAUDE.md` for any of these legacy markers anywhere in the file:
+
+- `## Workflow (orbit)`
+- `## Orbit vocabulary`
+- `## Current Sprint`
+
+If any are present, prompt:
+
+```
+orbit: CLAUDE.md contains legacy workflow blocks (## Workflow (orbit) / ## Orbit vocabulary / ## Current Sprint).
+Migration removes them and adds @.orbit/METHOD.md as the single source of truth.
 Migrate now? (y/N)
 ```
 
-On `y`: replace the legacy "Artefacts live in..." line with the full `## Orbit vocabulary` block from the snippet below. Leave the rest of the snippet untouched (skills list, Current Sprint, etc. stay as the author left them).
+- **`y`:** continue to 6b. The legacy blocks will be removed in 6c's transaction.
+- **anything else (atomic refuse):** REFUSE the entire setup operation. Do NOT copy METHOD.md, do NOT add any @-import. Print:
+  ```
+  orbit: setup aborted. Re-run /orb:setup once you have removed the legacy blocks, or accept the migration prompt.
+  ```
+  Exit non-zero. The author retains full control of the legacy content.
 
-On anything else: leave CLAUDE.md untouched. Note that migration is available on next run of `/orb:setup`.
+If no legacy markers are present, fall through to 6b.
 
-**Case C — marker present, vocabulary present:** skip silently.
+**6b. Copy METHOD.md.** Copy `plugins/orb/skills/setup/METHOD.md` (from the plugin) to `.orbit/METHOD.md` in the project.
 
-**Snippet to append (Case A) / vocabulary block to insert (Case B):**
+If `.orbit/METHOD.md` already exists, compare it to the canonical via **byte-for-byte equality of the entire file including the "How to update" line** (no whitespace tolerance, no hash-only comparison). If they match, no-op. If they differ, prompt:
 
-```markdown
-## Workflow (orbit)
-
-This project uses the orbit workflow: Card → Design → Spec → Implement → Review → Ship.
-
-- `/orb:card` — capture a feature need with expected behaviours
-- `/orb:distill` — extract capability cards from source material
-- `/orb:discovery` — explore a vague idea through Socratic Q&A
-- `/orb:design` — refine a feature card into technical decisions
-- `/orb:spec` — crystallise interview into a structured specification
-- `/orb:review-spec` — stress-test the spec before implementation
-- `/orb:review-pr` — verify the PR against the spec's acceptance criteria
-
-## Orbit vocabulary
-
-- **Card** (`.orbit/cards/*.yaml`) — a capability the product provides. User language. Never closed.
-- **Memo** (`.orbit/cards/memos/*.md`) — raw idea awaiting distillation.
-- **Interview** (`.orbit/specs/<slug>/interview.md`) — Q&A record from `/design` or `/discovery`.
-- **Spec** (`.orbit/specs/<slug>/spec.yaml`) — a discrete unit of work with numbered ACs.
-- **Progress** (`.orbit/specs/<slug>/progress.md`) — AC tracker during implementation.
-- **Decision** (`.orbit/choices/*.md`) — MADR record of an architectural choice.
-
-Cards describe *what*, specs describe *work*. Follow-up work is a new spec against an existing card — not a new card. New cards are for new capabilities.
-
-## Current Sprint
-
-goal: "<sprint objective>"
-
-cards:
-  - NNNN: "<card goal>"
 ```
+orbit: .orbit/METHOD.md differs from the canonical (the plugin has updated, or the file has been edited locally).
+Overwrite with canonical? (y/N)
+```
+
+- **`y`:** overwrite.
+- **anything else:** keep the local copy (the prompt is informational; setup does not refuse on decline).
+
+**6c. Ensure CLAUDE.md @-import.** If CLAUDE.md does not contain the line `@.orbit/METHOD.md` anywhere, append it on its own line at end-of-file with a single blank line above. Match the existing `@.orbit/STYLE.md` shape — **no marker heading**.
+
+If 6a fired the migration prompt and the author accepted, this step also removes the legacy blocks (`## Workflow (orbit)`, `## Orbit vocabulary`, `## Current Sprint` and their bodies) in the same transaction as adding the @-import. Either both edits land or neither does.
+
+If `@.orbit/METHOD.md` is already present, no-op (idempotent).
 
 ### 7. First Card Tutorial
 
