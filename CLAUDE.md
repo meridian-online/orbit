@@ -46,13 +46,14 @@ Each artefact has one job. Don't invent new names — if something doesn't fit, 
 | Spec        | `.orbit/specs/<date>-<slug>/spec.yaml`                       | A discrete unit of work with numbered acceptance criteria. One card may spawn many specs over time.                          |
 | Progress    | `.orbit/specs/<date>-<slug>/progress.md`                     | AC tracker maintained during implementation. The implementation diary.                                                       |
 | Review      | `.orbit/specs/<date>-<slug>/review-{spec,pr}-<date>.md`      | Verdict artefact from `/review-spec` or `/review-pr`.                                                                         |
-| Decision    | `.orbit/choices/NNNN-<slug>.md`                            | MADR record of an architectural choice. Referenced by specs that respect it.                                                 |
+| Choice      | `.orbit/choices/NNNN-<slug>.yaml`                            | MADR record of an architectural choice — *how* an existing capability is implemented (bash vs rust, schema choice, review pattern). Referenced by specs that respect it. **Not** a new capability — for that, write a card. Worked example: `orbit spec promote in rust` is a choice; the capability already exists, only the implementation surface changes. |
 | Rally state | `.orbit/specs/<date>-<slug>-rally/rally.yaml`                | Durable state for a multi-card rally. Owned by the rally lead. Rally folders live alongside card spec folders — no separate archive.|
 | Drive state | `.orbit/specs/<date>-<slug>/drive.yaml`                      | Durable state for a single-card drive. Owned by the drive agent.                                                             |
 
-**Cards describe *what*, specs describe *work*.** When someone asks to "make a card for X":
+**Cards describe *what*, choices describe *how*, specs describe *work*.** When someone asks to "make a card for X":
 
-- Is X a capability the product provides? → card in `.orbit/cards/`.
+- Is X a decision about *how* an existing capability is implemented (bash vs rust, MCP vs shell, schema choice, review pattern, library choice)? → **choice** as a MADR file at `.orbit/choices/NNNN-<slug>.yaml` (no skill yet — see existing files like `0001-progressive-spec-review.yaml` for shape). The capability already exists; only the implementation surface is changing. Worked example: "should `orbit spec promote` live in rust" is a choice, not a card.
+- Is X a *new* capability the product provides? → card in `.orbit/cards/`.
 - Is X a discrete piece of work with acceptance criteria? → spec via `/design` + `/spec`.
 - Is X a rough idea you don't want to lose? → memo via `/memo`.
 - Is X a retrospective, options memo, or investigation plan? → none of the above. Retrospectives update the card they're about; options memos become `/discovery` sessions; investigation plans become specs.

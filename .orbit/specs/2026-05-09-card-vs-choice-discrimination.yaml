@@ -1,0 +1,29 @@
+id: 2026-05-09-card-vs-choice-discrimination
+goal: Sharpen the card / choice distinction so agents reliably route implementation-surface decisions ('should X live in bash or rust') to /orb:choice rather than capturing them as cards — extend CLAUDE.md's decision tree, augment the vocabulary table, and add a pre-flight to /orb:card and /orb:distill
+cards:
+- 0030-canonical-schema-and-glossary
+status: closed
+labels:
+- spec
+- vocabulary
+acceptance_criteria:
+- id: ac-01
+  description: 'CLAUDE.md ''When someone asks to make a card for X'' decision tree gains a fourth branch covering choices: ''Is X a decision about HOW an existing capability is implemented (bash vs rust, MCP vs shell, schema choice, review pattern)? → choice in `.orbit/choices/`.'' The branch sits before the card branch so agents have to discriminate before defaulting to a card. The branch names the existing MADR format (no /orb:choice skill exists yet) and points at an example file under `.orbit/choices/` for shape.'
+  gate: true
+  checked: true
+- id: ac-02
+  description: '/orb:card SKILL.md gains an explicit pre-flight before any scenario capture: the agent must answer ''is this a NEW capability the product provides, or a HOW decision about an existing one?'' If HOW, the skill exits and instructs the agent to write a choice MADR file at `.orbit/choices/NNNN-<slug>.yaml` (citing an existing example for shape). The pre-flight is named in its own §, not buried in prose, so cold-fork agents reading the SKILL.md cannot miss it.'
+  gate: true
+  checked: true
+- id: ac-03
+  description: /orb:distill SKILL.md gains the same pre-flight (it is the other upstream entry point that produces cards — from memos rather than user prompts). Distill must classify each candidate distillation as capability-shape vs choice-shape before producing a card; choice-shape distillations are written as MADR choice files instead of cards.
+  gate: true
+  checked: true
+- id: ac-04
+  description: CLAUDE.md vocabulary table's Choice row gains a one-line discriminator with a worked example, e.g. '(`orbit spec promote in rust` is a choice — the capability already exists, only the implementation surface changes).' The same discriminator (or a pointer to it) appears next to the Card row so the contrast is visible in either reading direction.
+  gate: false
+  checked: true
+- id: ac-05
+  description: A spec note records the canonical worked example that triggered this spec — preserved as the load-bearing illustration so future readers understand what the discrimination is guarding against.
+  gate: false
+  checked: true

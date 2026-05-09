@@ -57,6 +57,12 @@ For example:
 - ❌ "Expand phone validation to 40+ locales" (incremental TODO)
 - ✅ "Locale-aware type detection" (capability the user experiences)
 
+**Per-candidate classification — capability or choice?**
+
+For each candidate distillation, ask: is this a *new capability* the product provides, or a *choice* about how an existing capability is implemented? If the latter (e.g. "should X live in bash or rust", "schema choice for Y", "review pattern Z", library or implementation-surface decisions), it belongs as a MADR choice file at `.orbit/choices/NNNN-<slug>.yaml`, not a card. The capability is unchanged; only the implementation surface is being decided. Worked example: a memo arguing for `orbit spec promote` to live in rust is choice-shape, not card-shape.
+
+Surface choice-shape distillations in the Review phase the same way as cards, but flag them as `choice` (not `card`) in the numbered list so the author can confirm routing before the Write phase. See `.orbit/choices/0001-progressive-spec-review.yaml` for choice file shape.
+
 **Rules:**
 - Each feature must be **distinct** — different user need, different outcomes
 - If the source contains only one feature, that's fine — produce one card

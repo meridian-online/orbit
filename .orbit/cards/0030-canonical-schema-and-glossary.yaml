@@ -45,7 +45,8 @@ scenarios:
   when: enforcement is examined
   then: SCHEMA.md (or equivalent) exists at a stable path, README.md and CLAUDE.md link to it, /orb:card and /orb:distill and /orb:spec SKILL.md cite the schema for field semantics, and /orb:audit grows a column flagging fields used in cards but absent from the schema — without these wires the doc is a write-once aspiration
   gate: true
-specs: []
+specs:
+- .orbit/specs/2026-05-09-card-vs-choice-discrimination.yaml
 relations:
 - card: 0026-executive-communication
   type: feeds

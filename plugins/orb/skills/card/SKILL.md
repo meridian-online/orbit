@@ -19,6 +19,17 @@ A card captures a **feature**: who needs it, why it matters, and what they'd exp
 
 Cards are NOT specs. They don't prescribe solutions. "The step name is visible immediately" doesn't say "flush stdout" — it says what the user observes. The *how* comes during the interview.
 
+## Pre-flight: Card or Choice?
+
+Before writing anything, classify the request. Cards and choices are different artefacts and choosing the wrong one is the most common mistake at this entry point.
+
+- **Capability-shape** — X is a *new thing the product provides for users* (an outcome, an observable behaviour, a role × need). Continue to §1.
+- **Choice-shape** — X is a *decision about how* an existing capability is implemented (bash vs rust, MCP vs shell, schema choice, review pattern, library choice). The capability already exists; only the implementation surface is changing. **Stop here.** Write a MADR choice file at `.orbit/choices/NNNN-<slug>.yaml` instead — see `.orbit/choices/0001-progressive-spec-review.yaml` for the shape.
+
+**Worked example of the trap.** "Should `orbit spec promote` live in rust as a verb instead of bash?" is choice-shape — the promote capability already exists, the question is implementation surface. File as a choice, not a card.
+
+If unsure, ask the user explicitly: *"Is this a new capability or a decision about how an existing one is implemented?"* before proceeding.
+
 ## Instructions
 
 ### 1. Determine the Next Card Number
