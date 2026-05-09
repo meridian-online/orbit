@@ -10,31 +10,6 @@ review-spec → implement → review-pr) as a single session. Drive state
 lives in `.orbit/specs/<spec-folder>/drive.yaml`; resumption reads that
 file. AC state lives in the spec's `acceptance_criteria` field.
 
-## Migration Note
-
-Earlier `/orb:drive` revisions tracked drive state via bd metadata
-fields (`drive_stage`, `drive_iteration`, `drive_review_*_cycle`,
-`drive_review_*_date`, `drive_card`, `drive_autonomy`) and used the bd
-dep graph for iteration chains. orbit-state v0.1's spec schema is
-strict (`deny_unknown_fields`) and does not carry a metadata bag, so
-drive state has moved into the named `drive.yaml` slot per the orbit
-vocabulary:
-
-| Old (bd metadata)           | New (orbit-state)                                                     |
-|-----------------------------|------------------------------------------------------------------------|
-| `metadata.drive_stage`      | `drive.yaml: stage`                                                    |
-| `metadata.drive_iteration`  | `drive.yaml: iteration`                                                |
-| `metadata.drive_review_*`   | `drive.yaml: review_spec_cycle`, `review_pr_cycle`, `review_*_date`    |
-| `metadata.drive_card`       | `drive.yaml: card_path`                                                |
-| `metadata.drive_autonomy`   | `drive.yaml: autonomy`                                                 |
-| Iteration dep chain         | `drive.yaml: iteration_history` array of prior spec ids + constraints  |
-| Constraint history          | `orbit memory remember drive-<card-slug>-iter<N> "<constraint>"`       |
-
-Cold-fork review architecture (decision 0011 D2) is preserved — the
-fork reads the spec directly via `orbit spec show <spec-id> --json` and
-`plugins/orb/scripts/orbit-acceptance.sh acs <spec-id>`, with no
-intermediate rendered snapshot artefact.
-
 ## Usage
 
 ```
@@ -68,18 +43,8 @@ in three branches:
 
    ```bash
    orbit --json spec list --status open \
-     | python3 -c "
-   import sys, json, os
-   env = json.load(sys.stdin)
-   specs = env.get('data',{}).get('result',{}).get('specs', [])
-   matches = []
-   for s in specs:
-       sid = s['id']
-       # spec-folder convention: .orbit/specs/<sid>/drive.yaml
-       if os.path.exists(f'.orbit/specs/{sid}/drive.yaml'):
-           matches.append(sid)
-   print('\n'.join(matches))
-   "
+     | jq -r '.data.result.specs[].id' \
+     | while read -r sid; do [[ -f ".orbit/specs/$sid/drive.yaml" ]] && echo "$sid"; done
    ```
 
    - **Single match** → resume it.
@@ -133,9 +98,6 @@ iteration_history: []
 EOF
 ```
 
-No `interview.md` artefact, no separate spec-prose document, no per-
-iteration spec directory. The card → spec promotion IS the spec.
-
 After promote, schedule the heartbeat (full autonomy only — see below)
 and proceed to Stage 1.
 
@@ -143,20 +105,14 @@ and proceed to Stage 1.
 
 Skip this section entirely when `autonomy != full`.
 
-**Reconciliation, not re-creation.** Drive uses CronList-first
-idempotent reconciliation. Drive never delete-then-recreates the
-heartbeat — that would defeat Claude Code's built-in `--resume` task
-restoration.
+Drive uses CronList-first idempotent reconciliation: never
+delete-then-recreate, so Claude Code's `--resume` task restoration is
+preserved.
 
-1. `CronList` — enumerate active cron tasks in the session.
-2. If a task with ID `drive-checkin-<spec-id>` already exists, no-op
-   (it was restored by the harness or created earlier).
-3. Otherwise, `CronCreate` a recurring task with:
-   - **ID:** `drive-checkin-<spec-id>`.
-   - **Interval:** 5 minutes, recurring. **Hardcoded.**
-   - **Prompt body:** the exact text below.
-
-**Heartbeat prompt body (verbatim):**
+1. `CronList` — enumerate active cron tasks.
+2. If `drive-checkin-<spec-id>` already exists, no-op.
+3. Otherwise, `CronCreate` recurring with ID `drive-checkin-<spec-id>`,
+   interval 5 minutes (hardcoded), prompt body verbatim:
 
 ```
 This is a drive heartbeat. Run `orbit --json spec show <spec-id>` and
@@ -182,16 +138,10 @@ Do not modify the spec. Do not launch any Agent. Emit the single
 heartbeat line and stop.
 ```
 
-**Self-termination.** When the spec transitions to `closed` (complete
-or escalated), the heartbeat calls `CronDelete` on itself as a
-defence-in-depth backstop — primary cleanup remains in §Completion and
-§Escalation.
-
-**Non-fatal CronCreate.** If CronCreate fails (harness doesn't
-support cron, rate limit, transient error), drive logs one line
-`heartbeat unavailable: <reason>` and continues the pipeline. The
-heartbeat is an observability affordance; its absence must not block
-any stage.
+The heartbeat self-terminates when `spec.status == closed`
+(defence-in-depth; primary cleanup is in §Completion / §Escalation).
+If `CronCreate` fails, log `heartbeat unavailable: <reason>` and
+continue — the heartbeat is observability, not a gate.
 
 ## Stage 1: Review-Spec
 
@@ -555,13 +505,7 @@ synthetic BLOCK) or was rejected at a supervised gate.
    goal (or as a leading note):**
    ```bash
    CONSTRAINTS=$(orbit --json memory search "drive-<card-slug>" \
-     | python3 -c "
-   import sys, json
-   env = json.load(sys.stdin)
-   memories = env.get('data',{}).get('result',{}).get('memories',[])
-   for m in memories:
-       print('- ' + m['body'])
-   ")
+     | jq -r '.data.result.memories[] | "- " + .body')
    orbit spec note "$NEW_SPEC" "Constraints carried from prior iterations:
    $CONSTRAINTS"
    ```
@@ -593,11 +537,26 @@ synthetic BLOCK) or was rejected at a supervised gate.
 
 ## Escalation
 
+The drive's job is to find the way through, not the evidence that
+closes the card. Escalation is not giving up — it is the mechanism by
+which difficult work gets human judgment at the right moment.
+
 Escalation is triggered by **iteration budget exhaustion**
 (`iteration == 3` and current iteration NO-GO'd) OR by a **semantic
-trigger** from the Disposition section (recurring failure mode,
-contradicted hypothesis, diminishing signal). An honest agent may
-escalate before the budget is spent.
+trigger** — an honest agent may escalate before the budget is spent
+when:
+
+- **Recurring failure mode** — the same problem has appeared across 2+
+  iterations despite varied approaches. The constraint may be
+  structural, not configurational.
+- **Contradicted hypothesis** — accumulated evidence points to the
+  card's *underlying goal* being unreachable, not just the current
+  approach falling short. The call to pivot a thesis belongs to the
+  author.
+- **Diminishing signal** — each iteration is producing less new
+  information than the last. The drive is grinding, not learning.
+
+### Steps
 
 1. **Set drive.yaml stage and close:**
    ```bash
@@ -660,9 +619,32 @@ escalate before the budget is spent.
    <reason>` and continue. The escalation summary in step 2 is the
    authoritative channel; the ping is notification amplification.
 
-5. **Stop.** The card needs human rethinking. Escalation is not giving
-   up — it is the mechanism by which difficult work gets human
-   judgment at the right moment.
+5. **Stop.** The card needs human rethinking.
+
+## Critical Rules
+
+These are invariants — not duplicates of the body. The body describes
+what to do at each step; these rules describe what must always hold.
+
+- **drive.yaml is the single source of orchestration state.** Do not
+  track drive state in any other file. The drive.yaml `stage` field
+  is the source of truth for resumption.
+- **Reviews run as forked Agents in cold context.** Every review is a
+  fresh fork via the Agent tool — no shared conversation history, no
+  iteration counter, no prior-finding pointers. Re-reviews after
+  REQUEST_CHANGES are functionally identical to first-cycle reviews.
+- **Verdicts are read from disk only.** The review file's canonical
+  verdict line (regex in §1.4) is the single authoritative source.
+  The fork's chat response is never parsed.
+- **REQUEST_CHANGES is bounded per stage** (3-cycle budget per
+  iteration). The 4th would-be cycle is converted to a synthetic
+  BLOCK with the byte-identical canonical constraint string in §1.6.
+- **Iteration is bounded by 3 specs in the iteration_history chain.**
+  After three NO-GOs, drive escalates. Earlier escalation is permitted
+  on semantic triggers (§Escalation).
+- **Never silently downgrade autonomy.** If full mode is requested
+  but the card is thin, refuse explicitly. The thin-card guard is a
+  pre-qualification gate, not a runtime decision.
 
 ## Resumption
 
@@ -697,155 +679,8 @@ drive per §Input contract):
    exists, leave it; if absent, re-create it. Drive never
    delete-then-recreates, so a surviving task is preserved.
 
-5. **Announce the resumption:**
-
-   ```
-   Resuming drive for <spec-id> (<spec goal>)
-   Card: <card_path>
-   Autonomy: <autonomy>
-   Iteration: <iteration> of 3
-   Resuming at: <stage>
-   Review cycles: review-spec=<N>/3, review-pr=<N>/3
-   Heartbeat: <active | created | n/a (non-full autonomy) | unavailable>
-   ```
-
-## Critical Rules
-
-- **Never skip a stage.** Promote → Review-Spec → Implement → Review-PR,
-  always in order.
-- **Never silently downgrade autonomy.** If full mode is requested but
-  the card is thin, refuse explicitly.
-- **The drive.yaml is the single source of orchestration state.** Do
-  not track drive state in any other file.
-- **Reviews run as forked Agents.** Drive launches each review via the
-  Agent tool (`subagent_type: general-purpose`) in a fresh context.
-  Verify Agent availability via ToolSearch first; do not fall back to
-  inline review.
-- **Verdicts are read from disk only.** The review file's canonical
-  verdict line (`**Verdict:** APPROVE | REQUEST_CHANGES | BLOCK`,
-  matched by strict regex) is the single authoritative source. The
-  fork's chat response is never parsed.
-- **Re-reviews are fully cold.** When a REQUEST_CHANGES cycle re-forks
-  the reviewer, the new fork's brief is functionally identical to the
-  first cycle's brief — no path to prior review files, no iteration
-  counter, no summary of prior findings.
-- **REQUEST_CHANGES is bounded per stage.** Each stage has an
-  independent 3-cycle budget. The 4th would-be cycle is converted to
-  a synthetic BLOCK with the byte-identical canonical constraint
-  string.
-- **Iteration is bounded by 3 specs in the iteration_history chain.**
-  After three NO-GOs, drive escalates. Earlier escalation is
-  permitted on semantic triggers.
-- **Live-visibility heartbeat is full-autonomy-only and
-  self-terminating.** The cron prompt body has a read-only contract
-  ("do not modify the spec, do not launch any Agent") with one
-  exception: when `spec.status == closed`, the heartbeat
-  `CronDelete`s itself.
-- **Cron tasks are reconciled idempotently.** CronList-then-CronCreate-
-  iff-absent on every initialise and every resume. Drive never
-  delete-then-recreates a heartbeat task.
-- **MEDIUM+ review verdicts route through the four-option
-  AskUserQuestion prompt.** LOW-only or zero-finding APPROVE gates
-  retain the existing shorter prompts. Drive reads severity from the
-  review file directly and never re-classifies. `read full review
-  first` is a deferral; drive re-presents the same prompt verbatim
-  on the author's next turn.
-
-## Disposition
-
-The drive's job is to **find the way through, not the evidence that
-closes the card.** When an iteration falls short, the first question
-is *what would have to be true for this to work*, not *what does this
-rule out*. Push past the first plateau. Try the approaches that look
-uncomfortable. Treat negative results as constraints on the next
-iteration, not as conclusions.
-
-### Bounded by honest escalation
-
-Disposition and escalation are the same stance, not opposing ones.
-Commitment to the goal is bounded by honest reporting. Escalate —
-don't push through, and don't quietly close — when any of these are
-true:
-
-- **Recurring failure mode.** The same problem has appeared across 2+
-  iterations despite varied approaches to address it. The constraint
-  may be structural, not configurational.
-- **Contradicted hypothesis.** The accumulated evidence points to the
-  card's *underlying goal* being unreachable, not just the current
-  approach falling short. The call to pivot a thesis belongs to the
-  author.
-- **Diminishing signal.** Each iteration is producing less new
-  information than the last. The drive is grinding, not learning.
-
-These semantic triggers supplement the mechanical iteration budget. An
-agent with the right disposition may escalate at iteration 2 when the
-evidence warrants it, or push hard through all 3 when each iteration
-genuinely narrows the search space.
-
-## Worked example
-
-A copy-pasteable trace for a card → spec → close happy path. Each
-step is a literal command.
-
-```bash
-# 1. Validate the card (full autonomy requires ≥3 scenarios)
-python3 -c "
-import yaml
-with open('.orbit/cards/0005-drive.yaml') as f:
-    card = yaml.safe_load(f)
-n = len(card.get('scenarios', []))
-assert n >= 3, f'BLOCKED: full autonomy requires ≥3 scenarios; have {n}'
-print(f'OK: {n} scenarios')
-"
-
-# 2. Promote card → spec
-SPEC=$(plugins/orb/scripts/promote.sh .orbit/cards/0005-drive.yaml)
-echo "Promoted: $SPEC"
-
-# 3. Seed drive.yaml
-cat > ".orbit/specs/$SPEC/drive.yaml" <<EOF
-spec_id: $SPEC
-card_path: .orbit/cards/0005-drive.yaml
-autonomy: full
-iteration: 1
-stage: review-spec
-review_spec_cycle: 0
-review_spec_date: null
-review_pr_cycle: 0
-review_pr_date: null
-iteration_history: []
-EOF
-
-# 4. Schedule heartbeat (full autonomy)
-# CronList → CronCreate iff absent (drive-checkin-$SPEC, 5 min recurring)
-
-# 5. Stage 1: fork review-spec (reads spec directly via orbit spec show + orbit-acceptance.sh)
-mkdir -p ".orbit/specs/$SPEC"
-# Update drive.yaml: review_spec_date=$(date -I)
-# Agent({ subagent_type: 'general-purpose', prompt: <brief naming $SPEC + output path; reviewer reads orbit spec show + orbit-acceptance.sh> })
-# Parse verdict from .orbit/specs/$SPEC/review-spec-$(date -I).md
-# APPROVE → drive.yaml stage=implement
-
-# 6. Stage 2: delegate to /orb:implement
-# Update drive.yaml: stage=implement
-# (invoke /orb:implement with $SPEC)
-# When orbit-acceptance.sh has-unchecked $SPEC exits 1:
-# Update drive.yaml: stage=review-pr
-
-# 7. Stage 3: fork review-pr
-# (mirrors stage 1; brief includes git diff main...HEAD + spec-id for AC cross-reference)
-
-# 8. APPROVE at review-pr → completion
-git add -A
-git commit -m "feat: $(orbit --json spec show $SPEC | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['result']['spec']['goal'])")"
-gh pr create --title "drive: <spec goal>" --body "<refs $SPEC and reviews>"
-# Update drive.yaml: stage=complete
-orbit spec note $SPEC "drive completed: <one-line summary>"
-orbit spec close $SPEC
-
-# 9. Heartbeat cleanup (non-fatal)
-# CronDelete drive-checkin-$SPEC || echo "heartbeat cleanup skipped"
-```
+5. **Announce the resumption** in one line: spec id, stage, iteration,
+   review-cycle counts, heartbeat status.
 
 ---
 

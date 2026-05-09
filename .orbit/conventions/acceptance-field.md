@@ -1,33 +1,31 @@
-# Acceptance field format convention
+# Acceptance criteria convention
 
-Orbit uses the beads `acceptance` field to store structured acceptance criteria for work beads. This convention defines the format that orbit skills parse.
+Orbit specs store acceptance criteria as a structured field on the spec YAML — `acceptance_criteria`. This convention defines the field shape, the gate-enforcement semantics, and the helpers that read it.
 
-## Format
+## Field shape
 
-One line per AC. Lines that don't match the format are skipped with a warning.
+`acceptance_criteria` is a list of records on the spec (`.orbit/specs/<spec-id>.yaml`):
 
-```
-- ac-NN [gate]: Description of the acceptance criterion
-- ac-NN: Description of the acceptance criterion
-```
-
-- **`ac-NN`** — sequential identifier starting at `ac-01`. Zero-padded to two digits.
-- **`[gate]`** — optional marker. Gate ACs block all subsequent ACs by declaration order.
-- **`[x]`** — checked prefix replaces `- ` when the AC is complete: `- [x] ac-NN: ...`
-
-### Parsing regex
-
-```
-^- \[( |x)\] (ac-\d{2,3})(\s+\[gate\])?:\s+(.+)$
+```yaml
+acceptance_criteria:
+- id: ac-01
+  description: Decide hash algorithm before implementing drift detection
+  gate: true
+  checked: false
+- id: ac-02
+  description: Implement sha256 drift check in pre-AC sequence
+  gate: false
+  checked: false
 ```
 
-Capture groups:
-1. Check status: space = unchecked, `x` = checked
-2. AC identifier: `ac-01`, `ac-02`, etc.
-3. Gate marker: ` [gate]` or absent
-4. Description text
+- **`id`** — sequential identifier starting at `ac-01`. Zero-padded to two digits. Stable for the lifetime of the spec; never renumbered.
+- **`description`** — the AC text. Plain prose; no special syntax.
+- **`gate`** — boolean. A gate AC blocks all subsequent ACs by declaration order until checked.
+- **`checked`** — boolean. Flipped to `true` via `orbit spec update --ac-check <id>` (or the `orbit-acceptance.sh check` wrapper).
 
-### Gate enforcement rules
+The structured field replaces the bd-era markdown-line format. Helpers read it via `orbit --json spec show <spec-id>` (full spec) or `plugins/orb/scripts/orbit-acceptance.sh acs <spec-id>` (tab-separated tuples per AC).
+
+## Gate enforcement rules
 
 - A gate AC blocks all subsequent ACs by declaration order, regardless of whether those subsequent ACs are themselves gates.
 - Non-gate ACs do not block each other.
@@ -35,34 +33,35 @@ Capture groups:
 - A checked gate releases all subsequent ACs until the next unchecked gate.
 - Multiple consecutive gates are valid — each must be checked in order.
 
-### Checked vs unchecked
-
-Unchecked:
-```
-- [ ] ac-01 [gate]: Decide hash algorithm
-```
-
-Checked:
-```
-- [x] ac-01 [gate]: Decide hash algorithm
-```
-
-The implement skill updates the acceptance field (via `bd update --acceptance`) to check off ACs as they complete.
+`orbit-acceptance.sh next-ac <spec-id>` returns the first unchecked AC that is not blocked by an unchecked gate. The implement skill (and `/orb:drive` Stage 2) defers to this helper rather than re-checking gates inline.
 
 ## Worked examples
 
 ### Example 1: Spec with gates
 
+```yaml
+acceptance_criteria:
+- id: ac-01
+  description: Decide hash algorithm before implementing drift detection
+  gate: true
+  checked: false
+- id: ac-02
+  description: Implement sha256 drift check in pre-AC sequence
+  gate: false
+  checked: false
+- id: ac-03
+  description: Write resume drift notice
+  gate: false
+  checked: false
+- id: ac-04
+  description: Confirm schema ownership before extending acceptance shape
+  gate: true
+  checked: false
+- id: ac-05
+  description: Add gate enforcement to implement skill
+  gate: false
+  checked: false
 ```
-- [ ] ac-01 [gate]: Decide hash algorithm before implementing drift detection
-- [ ] ac-02: Implement sha256 drift check in pre-AC sequence
-- [ ] ac-03: Write session-context.sh drift notice on resume
-- [ ] ac-04 [gate]: Confirm schema ownership with dependent cards before extending progress.md
-- [ ] ac-05: Write progress.md parser
-- [ ] ac-06: Add gate enforcement to implement skill
-```
-
-**Parse result:**
 
 | AC    | Gate | Status    | Blocked by |
 |-------|------|-----------|------------|
@@ -71,9 +70,8 @@ The implement skill updates the acceptance field (via `bd update --acceptance`) 
 | ac-03 | no   | unchecked | ac-01      |
 | ac-04 | yes  | unchecked | ac-01      |
 | ac-05 | no   | unchecked | ac-01      |
-| ac-06 | no   | unchecked | ac-01      |
 
-**Next AC:** ac-01 (first unchecked; it's a gate so nothing after it can start)
+**Next AC:** ac-01 (first unchecked; it's a gate so nothing after it can start).
 
 After checking ac-01:
 
@@ -84,33 +82,36 @@ After checking ac-01:
 | ac-03 | no   | unchecked | —          |
 | ac-04 | yes  | unchecked | —          |
 | ac-05 | no   | unchecked | ac-04      |
-| ac-06 | no   | unchecked | ac-04      |
 
-**Next AC:** ac-02 (first unchecked, not blocked — ac-04 is also available but ac-02 comes first)
+**Next AC:** ac-02 (first unchecked, not blocked — ac-04 is also available but ac-02 comes first).
 
 ### Example 2: Spec without gates
 
+```yaml
+acceptance_criteria:
+- id: ac-01
+  description: Add heartbeat CronCreate at drive start
+  gate: false
+  checked: false
+- id: ac-02
+  description: Define heartbeat format string
+  gate: false
+  checked: false
+- id: ac-03
+  description: Document escalation ping one-shot
+  gate: false
+  checked: true
+- id: ac-04
+  description: Add CronDelete at drive completion
+  gate: false
+  checked: false
 ```
-- [ ] ac-01: Add heartbeat CronCreate at drive start
-- [ ] ac-02: Define heartbeat format string
-- [x] ac-03: Document escalation ping one-shot
-- [ ] ac-04: Add CronDelete at drive completion
-```
 
-**Parse result:**
+**Next AC:** ac-01 (first unchecked; no gates so nothing is blocked).
 
-| AC    | Gate | Status    | Blocked by |
-|-------|------|-----------|------------|
-| ac-01 | no   | unchecked | —          |
-| ac-02 | no   | unchecked | —          |
-| ac-03 | no   | checked   | —          |
-| ac-04 | no   | unchecked | —          |
+## Invariants
 
-**Next AC:** ac-01 (first unchecked; no gates so nothing is blocked)
-
-## Constraints carried from current spec conventions
-
-- The acceptance field is the single source of truth for AC status within a bead.
-- AC numbering is stable — IDs are never renumbered after creation.
-- The implement skill computes "next AC" as the first unchecked item that is not blocked by an unchecked gate.
-- Malformed lines (not matching the regex) are skipped with a warning, not treated as errors.
+- The `acceptance_criteria` field is the single source of truth for AC status within a spec.
+- AC IDs are stable — never renumbered after creation.
+- "Next AC" is the first unchecked record whose declaration is not preceded by an unchecked gate.
+- Helpers (`orbit-acceptance.sh`, `orbit spec update --ac-check / --ac-uncheck`) update the field through the canonical writer; ad-hoc YAML edits are discouraged because they risk drifting from canonical form (run `orbit canonicalise` after any direct edit).
