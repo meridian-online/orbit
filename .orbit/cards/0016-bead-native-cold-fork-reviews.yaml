@@ -1,3 +1,4 @@
+id: 0016-bead-native-cold-fork-reviews
 feature: Bead-native cold-fork reviews
 as_a: author
 i_want: /orb:review-spec and /orb:review-pr to read directly from the bead's structured acceptance field, with the same rule coverage they had against spec.yaml

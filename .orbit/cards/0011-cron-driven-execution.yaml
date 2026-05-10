@@ -1,3 +1,4 @@
+id: 0011-cron-driven-execution
 feature: Scheduled agent runs between planning sessions
 as_a: author
 i_want: agents to run on cadences between my daily planning sessions, checking state, picking up ready work, and emitting shift reports

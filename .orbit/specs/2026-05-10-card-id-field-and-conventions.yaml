@@ -8,15 +8,15 @@ acceptance_criteria:
 - id: ac-01
   description: '`Card` struct in `orbit-state/crates/core/src/schema.rs` gains `id: Option<String>` as its first field (positioned before `feature`). The canonical writer emits the field when present; parsers accept yaml with or without it (backwards-compatible read of old cards). When `id` is present it MUST equal the filename slug minus the `.yaml` extension; mismatch is a parse error. Two unit tests: (a) round-trip a card with `id` set; (b) round-trip a legacy card without `id` and confirm the canonical writer adds it on the next pass.'
   gate: true
-  checked: false
+  checked: true
 - id: ac-02
   description: 'A one-shot canonicalise pass over `.orbit/cards/*.yaml` adds `id: <full-slug>` as the first field of every existing card. Idempotent. Verification: every file under `.orbit/cards/` (excluding `cards/memos/`) starts with an `id:` line whose value matches its filename slug. `orbit verify` returns clean post-pass.'
   gate: true
-  checked: false
+  checked: true
 - id: ac-03
   description: '`orbit card show <bare-NNNN>` resolves via filename prefix-match — e.g. `orbit card show 8` returns the unique card whose filename starts with `0008-`. Errors: zero matches → `not-found`; multiple matches → `ambiguous` (should never trigger within a type, but the error path is named). Same behaviour for `orbit choice show <bare-NNNN>`. The existing full-slug form (`orbit card show 0008-consolidated-orbit-artefact-folder`) remains valid. Three unit tests: bare-NNNN resolves; full-slug still works; zero-match returns the right error.'
   gate: true
-  checked: false
+  checked: true
 - id: ac-04
   description: '`.orbit/conventions/id-conventions.md` is created. The doc lists the three id-type families (enumerated for cards/choices, dated for specs, keyed for memories), gives one example per type, names the type-qualifier prose contract (`card NNNN`, `choice NNNN`, `spec date-slug`), and links to choice 0022 for rationale. One screen of dense prose; no recapitulation of the choice''s body.'
   gate: true

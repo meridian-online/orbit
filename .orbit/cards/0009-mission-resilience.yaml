@@ -1,3 +1,4 @@
+id: 0009-mission-resilience
 feature: Mission resilience — drives stay anchored to the spec contract through disruptions
 as_a: author
 i_want: the implementing drive to follow the spec's pre-flight contract (halt conditions, escalation triggers, gate ACs), detect drift, log detours, and re-anchor after unplanned work

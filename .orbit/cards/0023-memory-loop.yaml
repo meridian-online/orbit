@@ -1,3 +1,4 @@
+id: 0023-memory-loop
 feature: Project memory — accreted facts auto-injected at prime
 as_a: agent starting a session in a project
 i_want: relevant project-specific facts that prior sessions discovered to be in my context window from the moment I start work

@@ -1,3 +1,4 @@
+id: 0027-brew-installable
 feature: orbit is brew-installable — one-line install on macOS and linux, no Rust toolchain
 as_a: someone trying orbit for the first time, or moving to a new machine
 i_want: to install orbit (the binary substrate plus the orb plugin path) in a single command, without needing rustup, cargo, or a clone of the orbit repo

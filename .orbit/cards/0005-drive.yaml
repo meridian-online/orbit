@@ -1,3 +1,4 @@
+id: 0005-drive
 feature: Drive — autonomous spec implementation
 as_a: developer
 i_want: to hand a spec (output of tabletop) to an agent and have it drive through implementation against the pre-flight contract — opening session-scoped tasks, appending notes, handing off to review at close

@@ -1,3 +1,4 @@
+id: 0030-canonical-schema-and-glossary
 feature: Canonical schema and glossary — one document for card / spec fields and orbit vocabulary
 as_a: orbit contributor / agent / new joiner
 i_want: a single-source reference for what every card and spec field means, what every orbit term names, and where to find it

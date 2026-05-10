@@ -1,3 +1,4 @@
+id: 0021-tasks
 feature: Tasks — session-scoped sub-spec units
 as_a: agent working a drive
 i_want: to open, claim, update, and close session-scoped tasks within a spec — persisted across sessions and machines via append-only events

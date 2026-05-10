@@ -1,3 +1,4 @@
+id: 0012-daily-planning-protocol
 feature: Structured daily human-agent sync
 as_a: author
 i_want: a daily planning session with defined inputs, outputs, and expected duration

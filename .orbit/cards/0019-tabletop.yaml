@@ -1,3 +1,4 @@
+id: 0019-tabletop
 feature: Tabletop — front-loaded thinking before specs are written
 as_a: orbit user
 i_want: a structured session that extracts values, articulates trade-offs, walks lateral scenarios, and pre-commits halt conditions and escalation triggers — across one card or many — before any spec or implementation is drafted

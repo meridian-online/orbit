@@ -1,3 +1,4 @@
+id: 0031-design-session-user-language
 feature: Design sessions stay in user-language; closed-decision-space cards skip the interview
 as_a: orbit author
 i_want: /orb:design to recognise when a card has no real design space, produce a short design note instead of a forced interview, and apply an implementation-question filter to whatever questions it does ask

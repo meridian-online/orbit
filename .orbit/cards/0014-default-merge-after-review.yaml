@@ -1,3 +1,4 @@
+id: 0014-default-merge-after-review
 feature: Default-merge after review-pr approval
 as_a: author
 i_want: the agent to merge a PR automatically once review-pr returns APPROVE, while still notifying me and preserving my override

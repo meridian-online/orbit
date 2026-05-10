@@ -1,3 +1,4 @@
+id: 0013-playbook-fast-path
 feature: Playbook fast-path for known investigations
 as_a: author
 i_want: an agent with a proven investigation sequence to declare it, present the steps for my approval, and execute mechanically — without running a Socratic interview I no longer have better answers for

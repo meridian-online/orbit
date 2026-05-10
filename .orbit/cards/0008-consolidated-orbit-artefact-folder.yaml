@@ -1,3 +1,4 @@
+id: 0008-consolidated-orbit-artefact-folder
 feature: Consolidated orbit artefact folder under .orbit/
 as_a: developer using the orbit workflow
 i_want: all orbit-managed artefacts (cards, choices, specs, memories, memos, derived index) to live under a single hidden .orbit/ folder with selective gitignore

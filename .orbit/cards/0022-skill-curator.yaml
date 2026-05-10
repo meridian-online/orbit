@@ -1,3 +1,4 @@
+id: 0022-skill-curator
 feature: Agent-authored skills with curator-managed lifecycle
 as_a: agent encountering a recurring pattern
 i_want: to author and ship a SKILL.md without polluting the curated skill collection — a periodic curator archives stale agent-authored skills while leaving human-authored, bundled, and pinned skills untouched

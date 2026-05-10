@@ -1,3 +1,4 @@
+id: 0017-setup-is-bead-aware
 feature: /orb:setup is orbit-state-aware
 as_a: orbit user setting up a new project or migrating an existing one
 i_want: /orb:setup to handle orbit-state initialisation and the .orbit/ layout in one atomic pass — not as a separate manual step

@@ -1,3 +1,4 @@
+id: 0015-research-mode-iteration-loop
 feature: Research-mode iteration loop
 as_a: author
 i_want: a lightweight loop for hypothesis-test research work — hypothesis, params, result, decision — distinct from the full Card → Design → Spec → Implement → Review pipeline

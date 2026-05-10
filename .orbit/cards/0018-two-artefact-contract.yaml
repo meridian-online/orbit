@@ -1,3 +1,4 @@
+id: 0018-two-artefact-contract
 feature: Two-artefact executive surface
 as_a: orbit user
 i_want: only cards and decisions to land on my desk; specs, agent state, and skill iteration to live in the agent substrate where I never have to read them

@@ -1,3 +1,4 @@
+id: 0001-memos
 feature: Capture rough ideas as memos
 as_a: author
 i_want: to jot down a rough idea — typed in markdown or dictated as a voice memo — and have it live in the card pipeline

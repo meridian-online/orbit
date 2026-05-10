@@ -67,7 +67,7 @@ pub fn canonicalise_all(layout: &OrbitLayout, dry_run: bool) -> CanonicaliseRepo
         canonicalise_file::<Spec>(&path, dry_run, &mut report);
     }
     for path in list_or_empty(layout.list_card_files()) {
-        canonicalise_file::<Card>(&path, dry_run, &mut report);
+        canonicalise_card_file(&path, dry_run, &mut report);
     }
     for path in list_or_empty(layout.list_choice_files()) {
         canonicalise_file::<Choice>(&path, dry_run, &mut report);
@@ -81,6 +81,70 @@ pub fn canonicalise_all(layout: &OrbitLayout, dry_run: bool) -> CanonicaliseRepo
 
 fn list_or_empty(result: std::io::Result<Vec<PathBuf>>) -> Vec<PathBuf> {
     result.unwrap_or_default()
+}
+
+/// Card-specific canonicalise: parses the file, populates `id` from the
+/// filename when missing, validates `id` matches the filename when present,
+/// and reserialises through the canonical writer. Per choice 0022, the
+/// canonical writer emits `id` as the first field; this function is the
+/// migration path that fills it for cards authored before the field existed.
+fn canonicalise_card_file(path: &Path, dry_run: bool, report: &mut CanonicaliseReport) {
+    let original = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            report
+                .parse_failed
+                .push((path.to_path_buf(), format!("read: {e}")));
+            return;
+        }
+    };
+    let mut parsed: Card = match parse_yaml(&original) {
+        Ok(v) => v,
+        Err(e) => {
+            report.parse_failed.push((path.to_path_buf(), e.to_string()));
+            return;
+        }
+    };
+    let expected_id = match path.file_stem().and_then(|s| s.to_str()) {
+        Some(s) => s.to_string(),
+        None => {
+            report
+                .parse_failed
+                .push((path.to_path_buf(), "filename has no stem".into()));
+            return;
+        }
+    };
+    match parsed.id.as_deref() {
+        Some(id) if id != expected_id => {
+            report.parse_failed.push((
+                path.to_path_buf(),
+                format!("id mismatch: yaml says `{id}`, filename says `{expected_id}`"),
+            ));
+            return;
+        }
+        Some(_) => {}
+        None => parsed.id = Some(expected_id),
+    }
+    let reserialised = match serialise_yaml(&parsed) {
+        Ok(s) => s,
+        Err(e) => {
+            report.parse_failed.push((path.to_path_buf(), e.to_string()));
+            return;
+        }
+    };
+    if reserialised == original {
+        report.unchanged += 1;
+        return;
+    }
+    if !dry_run {
+        if let Err(e) = std::fs::write(path, &reserialised) {
+            report
+                .parse_failed
+                .push((path.to_path_buf(), format!("write: {e}")));
+            return;
+        }
+    }
+    report.rewrote += 1;
 }
 
 fn canonicalise_file<T>(path: &Path, dry_run: bool, report: &mut CanonicaliseReport)
@@ -172,6 +236,46 @@ mod tests {
 
         let after = std::fs::read_to_string(&path).unwrap();
         assert_eq!(after, canonical, "file should be rewritten to canonical form");
+    }
+
+    #[test]
+    fn canonicalise_populates_card_id_from_filename() {
+        // A card written with no `id:` field — the canonicalise pass must
+        // populate it from the filename slug per choice 0022.
+        let (_dir, layout) = fresh_layout();
+        let yaml = "feature: F\ngoal: G\nmaturity: planned\n";
+        let path = layout.cards_dir().join("0099-some-slug.yaml");
+        std::fs::write(&path, yaml).unwrap();
+
+        let report = canonicalise_all(&layout, false);
+        assert_eq!(report.rewrote, 1);
+        assert!(report.parse_failed.is_empty());
+
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after.starts_with("id: 0099-some-slug\n"),
+            "id should be the first field after canonicalise; got:\n{after}"
+        );
+    }
+
+    #[test]
+    fn canonicalise_rejects_card_id_filename_mismatch() {
+        // A card whose `id:` disagrees with its filename is a parse error,
+        // not silently rewritten.
+        let (_dir, layout) = fresh_layout();
+        let yaml = "id: 0099-wrong-slug\nfeature: F\ngoal: G\nmaturity: planned\n";
+        let path = layout.cards_dir().join("0099-actual-slug.yaml");
+        std::fs::write(&path, yaml).unwrap();
+
+        let report = canonicalise_all(&layout, false);
+        assert_eq!(report.rewrote, 0);
+        assert_eq!(report.unchanged, 0);
+        assert_eq!(report.parse_failed.len(), 1);
+        assert!(
+            report.parse_failed[0].1.contains("id mismatch"),
+            "expected id-mismatch error, got: {}",
+            report.parse_failed[0].1
+        );
     }
 
     #[test]

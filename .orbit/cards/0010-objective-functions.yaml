@@ -1,3 +1,4 @@
+id: 0010-objective-functions
 feature: Measurable project objectives with guardrails
 as_a: author
 i_want: every active project to have a measurable, agent-checkable objective paired with at least one guardrail

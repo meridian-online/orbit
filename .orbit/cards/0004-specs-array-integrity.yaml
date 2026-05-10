@@ -1,3 +1,4 @@
+id: 0004-specs-array-integrity
 feature: Specs array stays complete without manual upkeep
 as_a: author
 i_want: the specs array on cards to be updated automatically when specs are created, and reconciled when design sessions start

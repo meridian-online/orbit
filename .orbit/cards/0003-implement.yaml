@@ -1,3 +1,4 @@
+id: 0003-implement
 feature: Pre-flight spec check before implementation
 as_a: author
 i_want: the implementing agent to read the spec and extract a checklist before writing any code

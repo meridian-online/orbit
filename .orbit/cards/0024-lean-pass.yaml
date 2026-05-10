@@ -1,3 +1,4 @@
+id: 0024-lean-pass
 feature: Lean pass — periodic system-level audit against accretion
 as_a: orbit user
 i_want: a recurring discipline that surfaces stale or duplicate artefacts (memories, skills, choices, cards, specs, branches, prose, code) — flagging candidates without auto-acting

@@ -150,6 +150,12 @@ pub struct NoteEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Card {
+    /// Full slug (e.g. `0008-consolidated-orbit-artefact-folder`) — must equal
+    /// the filename minus `.yaml`. Optional for backwards compatibility with
+    /// pre-choice-0022 cards; the canonical writer fills it from the filename
+    /// on the next canonicalise pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub feature: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_a: Option<String>,

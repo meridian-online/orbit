@@ -1,3 +1,4 @@
+id: 0006-rally
 feature: Rally — orchestrated parallel drives with fan-out techniques
 as_a: developer
 i_want: to hand a set of specs (or sub-spec ACs) to a rally, have it determine parallelism, spawn drives across fan-out techniques, coordinate results, and surface escalations

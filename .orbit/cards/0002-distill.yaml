@@ -1,3 +1,4 @@
+id: 0002-distill
 feature: Distill capability cards from source material
 as_a: author
 i_want: to extract structured feature cards from memos, documents, conversations, or an existing project

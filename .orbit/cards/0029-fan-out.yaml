@@ -1,3 +1,4 @@
+id: 0029-fan-out
 feature: Fan-out as a first-class substrate concept across spec / drive / research levels
 as_a: orbit author / agent
 i_want: fan-out treated as a substrate primitive that any skill or drive can invoke — not a rally-internal pattern — with three named levels (spec-level / drive-internal / research-mode) and a sequential default

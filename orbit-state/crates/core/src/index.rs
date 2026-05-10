@@ -546,6 +546,7 @@ mod tests {
         write_yaml(layout.spec_file("0001"), &spec);
 
         let card = Card {
+            id: Some("0001-orbit-state".into()),
             feature: "orbit-state".into(),
             as_a: None,
             i_want: None,

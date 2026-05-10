@@ -1,3 +1,4 @@
+id: 0025-codebase-mastery
 feature: Codebase mastery — token-frugal navigation, parsing, and search
 as_a: agent working in any of Hugh's repos
 i_want: rtk-wrapped commands, tree-sitter for AST queries, ripgrep and ast-grep for search — all delivered in token-frugal modes by default

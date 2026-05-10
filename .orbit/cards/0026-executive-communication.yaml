@@ -1,3 +1,4 @@
+id: 0026-executive-communication
 feature: Executive communication — BLUF-led Decision Brief as agent output contract
 as_a: orbit user receiving agent output
 i_want: every substantive agent response to lead with a one-line TL;DR plus a single concrete recommendation, with reasoning capped at three points and detail listed but not dumped

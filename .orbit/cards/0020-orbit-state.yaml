@@ -1,3 +1,4 @@
+id: 0020-orbit-state
 feature: orbit-state — files-canonical agent substrate
 as_a: agent working in an orbit project
 i_want: a Rust + SQLite + MCP state manager where text files are the canonical truth and a SQLite index is rebuildable from them, exposed through MCP verbs so I never edit raw YAML

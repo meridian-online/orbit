@@ -32,6 +32,7 @@ use crate::schema::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::path::Path;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -1067,6 +1068,57 @@ fn validate_card_slug(verb: &str, slug: &str) -> Result<()> {
     Ok(())
 }
 
+/// Per choice 0022: cards and choices accept bare-NNNN as a CLI shorthand.
+/// `8` and `0008` both resolve to the unique file in `dir` whose filename
+/// starts with `0008-`. Returns `Ok(Some(slug))` on unique match, `Ok(None)`
+/// when the query isn't bare-numeric (caller falls back to literal lookup),
+/// and an error on zero or multiple matches.
+fn resolve_numeric_slug(verb: &str, dir: &Path, query: &str) -> Result<Option<String>> {
+    if query.is_empty() || !query.chars().all(|c| c.is_ascii_digit()) || query.len() > 4 {
+        return Ok(None);
+    }
+    let n: u32 = query
+        .parse()
+        .map_err(|e| Error::malformed(verb, format!("parse `{query}`: {e}")))?;
+    let padded = format!("{n:04}-");
+    let mut matches: Vec<String> = Vec::new();
+    let read = match std::fs::read_dir(dir) {
+        Ok(it) => it,
+        Err(_) => return Ok(None),
+    };
+    for entry in read.flatten() {
+        let name = entry.file_name();
+        let name = match name.to_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if !name.ends_with(".yaml") {
+            continue;
+        }
+        if name.starts_with(&padded) {
+            matches.push(name.trim_end_matches(".yaml").to_string());
+        }
+    }
+    match matches.len() {
+        0 => Err(Error::not_found(
+            verb,
+            format!("no entry matching `{padded}*` in {}", dir.display()),
+        )),
+        1 => Ok(Some(matches.pop().unwrap())),
+        _ => {
+            matches.sort();
+            Err(Error::malformed(
+                verb,
+                format!(
+                    "ambiguous: `{query}` matches {} entries: {}",
+                    matches.len(),
+                    matches.join(", ")
+                ),
+            ))
+        }
+    }
+}
+
 // ============================================================================
 // Task verbs (ac-07) — append-only JSONL events with last-event-wins state
 // reduction. Per ac-07: "Tasks are append-only JSONL events. State =
@@ -1562,7 +1614,9 @@ fn validate_memory_key(verb: &str, key: &str) -> Result<()> {
 fn card_show(layout: &OrbitLayout, args: &CardShowArgs) -> Result<CardShowResult> {
     const VERB: &str = "card.show";
     validate_card_slug(VERB, &args.slug)?;
-    let path = layout.card_file(&args.slug);
+    let resolved = resolve_numeric_slug(VERB, &layout.cards_dir(), &args.slug)?
+        .unwrap_or_else(|| args.slug.clone());
+    let path = layout.card_file(&resolved);
     if !path.exists() {
         return Err(Error::not_found(
             VERB,
@@ -1576,7 +1630,7 @@ fn card_show(layout: &OrbitLayout, args: &CardShowArgs) -> Result<CardShowResult
         e
     })?;
     Ok(CardShowResult {
-        slug: args.slug.clone(),
+        slug: resolved,
         card,
     })
 }
@@ -1665,7 +1719,9 @@ fn choice_show(layout: &OrbitLayout, args: &ChoiceShowArgs) -> Result<ChoiceShow
             format!("id must not contain path separators or '..': '{}'", args.id),
         ));
     }
-    let path = layout.choice_file(&args.id);
+    let resolved = resolve_numeric_slug(VERB, &layout.choices_dir(), &args.id)?
+        .unwrap_or_else(|| args.id.clone());
+    let path = layout.choice_file(&resolved);
     if !path.exists() {
         return Err(Error::not_found(
             VERB,
@@ -1904,6 +1960,7 @@ pub fn envelope_err_string(err: &Error) -> String {
 mod tests {
     use super::*;
     use crate::canonical::serialise_yaml;
+    use crate::error::Category;
     use crate::schema::Spec;
     use tempfile::tempdir;
 
@@ -2282,6 +2339,7 @@ mod tests {
 
     fn write_card(layout: &OrbitLayout, slug: &str) {
         let card = Card {
+            id: Some(slug.to_string()),
             feature: format!("feature-{slug}"),
             as_a: None,
             i_want: None,
@@ -2501,6 +2559,7 @@ mod tests {
         // Pre-stage card already containing the spec ref (simulates a
         // previous partial close).
         let card = Card {
+            id: Some("0020-x".into()),
             feature: "f".into(),
             as_a: None,
             i_want: None,
@@ -3061,10 +3120,14 @@ mod tests {
         .unwrap();
     }
 
-    fn write_choice(layout: &OrbitLayout, id: &str, title: &str, body: &str, status: ChoiceStatus) {
+    fn write_choice(layout: &OrbitLayout, slug: &str, title: &str, body: &str, status: ChoiceStatus) {
         layout.ensure_dirs().unwrap();
+        // Real choices use NNNN-suffixed filenames; the `id` field carries just
+        // the four-digit prefix per existing convention. Test fixtures supply
+        // the full slug (`"0015-foo"`) and we derive the numeric id from it.
+        let id = slug.split('-').next().unwrap_or(slug).to_string();
         let c = Choice {
-            id: id.into(),
+            id,
             title: title.into(),
             status,
             date_created: "2026-05-07".into(),
@@ -3073,7 +3136,7 @@ mod tests {
             references: vec![],
         };
         std::fs::write(
-            layout.choice_file(id),
+            layout.choice_file(slug),
             crate::canonical::serialise_yaml(&c).unwrap(),
         )
         .unwrap();
@@ -3175,6 +3238,7 @@ mod tests {
         layout.ensure_dirs().unwrap();
         write_card(&layout, "0020-orbit-state");
 
+        // Full slug.
         let resp = execute(
             &layout,
             &VerbRequest::CardShow(CardShowArgs {
@@ -3186,6 +3250,59 @@ mod tests {
             panic!()
         };
         assert_eq!(r.slug, "0020-orbit-state");
+
+        // Bare NNNN resolves via prefix-match per choice 0022.
+        let resp = execute(
+            &layout,
+            &VerbRequest::CardShow(CardShowArgs { slug: "20".into() }),
+        )
+        .unwrap();
+        let VerbResponse::CardShow(r) = resp else {
+            panic!()
+        };
+        assert_eq!(r.slug, "0020-orbit-state");
+
+        // Padded form.
+        let resp = execute(
+            &layout,
+            &VerbRequest::CardShow(CardShowArgs {
+                slug: "0020".into(),
+            }),
+        )
+        .unwrap();
+        let VerbResponse::CardShow(r) = resp else {
+            panic!()
+        };
+        assert_eq!(r.slug, "0020-orbit-state");
+
+        // Zero-match returns not-found.
+        let err = execute(
+            &layout,
+            &VerbRequest::CardShow(CardShowArgs { slug: "99".into() }),
+        )
+        .unwrap_err();
+        assert_eq!(err.category, Category::NotFound);
+    }
+
+    #[test]
+    fn card_show_bare_numeric_ambiguous_errors() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        // Two cards both starting `0020-` — ambiguity case the resolver names.
+        write_card(&layout, "0020-foo");
+        write_card(&layout, "0020-bar");
+
+        let err = execute(
+            &layout,
+            &VerbRequest::CardShow(CardShowArgs { slug: "20".into() }),
+        )
+        .unwrap_err();
+        assert!(
+            err.message.contains("ambiguous"),
+            "expected ambiguous error, got: {}",
+            err.message
+        );
     }
 
     #[test]
@@ -3196,6 +3313,7 @@ mod tests {
         // write_card uses Planned. Add one Established manually.
         write_card(&layout, "0020-planned");
         let est = Card {
+            id: Some("0021-established".into()),
             feature: "f".into(),
             as_a: None,
             i_want: None,
@@ -3254,8 +3372,9 @@ mod tests {
     fn choice_show_returns_full_choice() {
         let dir = tempdir().unwrap();
         let layout = OrbitLayout::at(dir.path());
-        write_choice(&layout, "0015", "title", "body", ChoiceStatus::Accepted);
+        write_choice(&layout, "0015-orbit-state", "title", "body", ChoiceStatus::Accepted);
 
+        // Bare NNNN resolves via prefix-match per choice 0022.
         let resp = execute(
             &layout,
             &VerbRequest::ChoiceShow(ChoiceShowArgs { id: "0015".into() }),
@@ -3265,14 +3384,45 @@ mod tests {
             panic!()
         };
         assert_eq!(r.choice.title, "title");
+
+        // Bare unpadded form (`15`) resolves identically.
+        let resp = execute(
+            &layout,
+            &VerbRequest::ChoiceShow(ChoiceShowArgs { id: "15".into() }),
+        )
+        .unwrap();
+        let VerbResponse::ChoiceShow(r) = resp else {
+            panic!()
+        };
+        assert_eq!(r.choice.title, "title");
+
+        // Full slug still works.
+        let resp = execute(
+            &layout,
+            &VerbRequest::ChoiceShow(ChoiceShowArgs {
+                id: "0015-orbit-state".into(),
+            }),
+        )
+        .unwrap();
+        let VerbResponse::ChoiceShow(_) = resp else {
+            panic!()
+        };
+
+        // Zero-match returns not-found.
+        let err = execute(
+            &layout,
+            &VerbRequest::ChoiceShow(ChoiceShowArgs { id: "99".into() }),
+        )
+        .unwrap_err();
+        assert_eq!(err.category, Category::NotFound);
     }
 
     #[test]
     fn choice_list_filters_by_status() {
         let dir = tempdir().unwrap();
         let layout = OrbitLayout::at(dir.path());
-        write_choice(&layout, "0015", "first", "b", ChoiceStatus::Accepted);
-        write_choice(&layout, "0016", "second", "b", ChoiceStatus::Proposed);
+        write_choice(&layout, "0015-a", "first", "b", ChoiceStatus::Accepted);
+        write_choice(&layout, "0016-b", "second", "b", ChoiceStatus::Proposed);
 
         let resp = execute(
             &layout,
@@ -3292,8 +3442,8 @@ mod tests {
     fn choice_search_hits_title_or_body() {
         let dir = tempdir().unwrap();
         let layout = OrbitLayout::at(dir.path());
-        write_choice(&layout, "0015", "Atomic writes", "trade-off discussion", ChoiceStatus::Accepted);
-        write_choice(&layout, "0016", "Other", "irrelevant", ChoiceStatus::Accepted);
+        write_choice(&layout, "0015-atomic", "Atomic writes", "trade-off discussion", ChoiceStatus::Accepted);
+        write_choice(&layout, "0016-other", "Other", "irrelevant", ChoiceStatus::Accepted);
 
         let resp = execute(
             &layout,
