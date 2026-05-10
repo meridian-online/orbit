@@ -16,16 +16,28 @@ Variants:
 
 ## Vocabulary
 
-| Artefact   | Where                                            | What it is                                                                              |
-|------------|--------------------------------------------------|-----------------------------------------------------------------------------------------|
-| Card       | `.orbit/cards/NNNN-<slug>.yaml`                  | A capability the product provides. User language. Never closed — updated in place.      |
-| Memo       | `.orbit/cards/memos/<date>-<slug>.md`            | Raw idea awaiting distillation. Freeform markdown. Deleted after promotion to a card.   |
-| Choice     | `.orbit/choices/NNNN-<slug>.yaml`                | MADR record of an architectural choice — *how* a capability is implemented.             |
-| Spec       | `.orbit/specs/<date>-<slug>.yaml`                | A discrete unit of work with numbered acceptance criteria. One card may spawn many.     |
-| Interview  | `.orbit/specs/<date>-<slug>.interview.md`        | Q&A record from a `/design` or `/discovery` session. Feeds the spec.                    |
-| Review     | `.orbit/specs/<date>-<slug>.review-{spec,pr}-<date>.md` | Verdict artefact from `/review-spec` or `/review-pr`.                            |
-| Drive state| `.orbit/specs/<date>-<slug>.drive.yaml`          | Durable orchestration state for a single-card drive.                                    |
-| Rally state| `.orbit/specs/<date>-<slug>-rally.rally.yaml`    | Durable orchestration state for a multi-card rally.                                     |
+| Artefact   | Id shape          | Where                                            | What it is                                                                              |
+|------------|-------------------|--------------------------------------------------|-----------------------------------------------------------------------------------------|
+| Card       | `NNNN-slug`       | `.orbit/cards/NNNN-<slug>.yaml`                  | A capability the product provides. User language. Never closed — updated in place.      |
+| Memo       | dated filename    | `.orbit/cards/memos/<date>-<slug>.md`            | Raw idea awaiting distillation. Freeform markdown. Deleted after promotion to a card.   |
+| Choice     | `NNNN-slug`       | `.orbit/choices/NNNN-<slug>.yaml`                | MADR record of an architectural choice — *how* a capability is implemented.             |
+| Spec       | `YYYY-MM-DD-slug` | `.orbit/specs/<date>-<slug>.yaml`                | A discrete unit of work with numbered acceptance criteria. One card may spawn many.     |
+| Interview  | (sidecar of spec) | `.orbit/specs/<date>-<slug>.interview.md`        | Q&A record from a `/design` or `/discovery` session. Feeds the spec.                    |
+| Review     | (sidecar of spec) | `.orbit/specs/<date>-<slug>.review-{spec,pr}-<date>.md` | Verdict artefact from `/review-spec` or `/review-pr`.                            |
+| Drive state| (sidecar of spec) | `.orbit/specs/<date>-<slug>.drive.yaml`          | Durable orchestration state for a single-card drive.                                    |
+| Rally state| (sidecar of spec) | `.orbit/specs/<date>-<slug>-rally.rally.yaml`    | Durable orchestration state for a multi-card rally.                                     |
+| Memory     | `key`             | `.orbit/memories/<key>.yaml`                     | Persistent knowledge across sessions, looked up by key.                                 |
+
+### Reference style
+
+Bare numeric ids are ambiguous (cards and choices share the NNNN namespace), so always qualify them with the entity type:
+
+- `card 0008` (or `card 8`) — full slug `0008-consolidated-orbit-artefact-folder`
+- `choice 0021` (or `choice 21`) — full slug `0021-spec-folders`
+- `spec 2026-05-10-card-id-field-and-conventions` — date-slug; no shorthand
+- `memory four-pillars` — key
+
+CLI lookup: `orbit card show` and `orbit choice show` accept full slug, padded `NNNN`, or bare unpadded number — all three resolve via filename prefix-match. See `.orbit/conventions/id-conventions.md` for the full rationale.
 
 ## When someone asks to "make a card for X"
 

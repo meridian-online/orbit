@@ -20,11 +20,11 @@ acceptance_criteria:
 - id: ac-04
   description: '`.orbit/conventions/id-conventions.md` is created. The doc lists the three id-type families (enumerated for cards/choices, dated for specs, keyed for memories), gives one example per type, names the type-qualifier prose contract (`card NNNN`, `choice NNNN`, `spec date-slug`), and links to choice 0022 for rationale. One screen of dense prose; no recapitulation of the choice''s body.'
   gate: true
-  checked: false
+  checked: true
 - id: ac-05
   description: '`.orbit/METHOD.md` vocabulary table gains an explicit "Reference style" note covering the type-qualifier convention (`card NNNN`, `choice NNNN`, `spec <date-slug>`, `memory <key>`). Each row of the existing vocabulary table cites its id shape inline (the Card row gains "id: NNNN-slug"; the Memory row already cites `key`; etc.). `plugins/orb/skills/setup/METHOD.md` mirrors the change byte-for-byte; `diff` exits zero.'
   gate: true
-  checked: false
+  checked: true
 - id: ac-06
   description: 'Audit pass on existing artefacts (`.orbit/cards/`, `.orbit/choices/`, `.orbit/specs/`, `.orbit/conventions/`, `.orbit/memories/`) for bare-NNNN references that should be type-qualified. Verification: `grep -rnE ''(^|[[:space:]\(\[])([0-9]{4})-'' .orbit/{cards,choices,specs,conventions,memories}` is reviewed and any prose-context bare-NNNN (i.e. not part of a path or filename) is qualified with `card |choice ` prefix. The grep result after the pass shows only path-context or quoted-id hits.'
   gate: false
