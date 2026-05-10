@@ -48,6 +48,7 @@ scenarios:
   gate: true
 specs:
 - .orbit/specs/2026-05-09-card-vs-choice-discrimination.yaml
+- .orbit/specs/2026-05-10-card-id-field-and-conventions.yaml
 relations:
 - card: 0026-executive-communication
   type: feeds

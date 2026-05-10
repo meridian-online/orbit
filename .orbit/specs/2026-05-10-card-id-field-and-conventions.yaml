@@ -2,7 +2,7 @@ id: 2026-05-10-card-id-field-and-conventions
 goal: 'Add id: field to Card, document the three id-type families (enumerated / dated / keyed), formalise type-prefix prose contract, and add bare-NNNN CLI lookup for cards and choices per choice 0022'
 cards:
 - 0030-canonical-schema-and-glossary
-status: open
+status: closed
 labels: []
 acceptance_criteria:
 - id: ac-01
@@ -32,4 +32,4 @@ acceptance_criteria:
 - id: ac-07
   description: '`orbit verify` returns clean post-changes. Substrate-binary parity gate (commit ca00bb1) passes. Workspace version bumps to reflect the schema change; a fresh release is cut so the brew bottle picks up the new Card schema and the new CLI prefix-match resolver. Verification: after rebuild, `orbit -V` reports the new version and `orbit card show 8` resolves correctly against this repo.'
   gate: false
-  checked: false
+  checked: true
