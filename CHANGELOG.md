@@ -2,6 +2,32 @@
 
 All notable changes to orbit are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.9] - 2026-05-10
+
+`Card` gains an explicit `id:` field; `orbit card show` and `orbit choice show` accept bare `NNNN` shorthand. The substrate's id conventions are documented as three families (enumerated for cards/choices, dated for specs, keyed for memories). Choices `0021-spec-folders` (per-spec folders revert) and `0022-entity-id-conventions` (id heterogeneity) are accepted; their migration specs open against cards 0008 and 0030.
+
+### Added
+
+- `Card.id: Option<String>` as the first field in the schema. Parsers accept legacy id-less yaml; the canonical writer fills `id` from the filename on the next canonicalise pass and rejects yaml whose `id` disagrees with its filename. One-shot pass over `.orbit/cards/` populated 31 existing cards.
+- `resolve_numeric_slug` in `orbit-state/crates/core/src/verbs.rs` — `orbit card show 8` and `orbit choice show 21` resolve via filename prefix-match. Errors: zero matches → `not-found`; multiple matches → `ambiguous`. Six unit tests cover the resolver.
+- `.orbit/conventions/id-conventions.md` — documents the three id-shape families, per-entity yaml field conventions, the type-qualifier prose contract, and CLI lookup forms.
+- Choices `0021-spec-folders.yaml` (revert flat-sidecar specs to per-spec folders; supersedes the file-shape decision in the 2026-05-09 sidecar migration) and `0022-entity-id-conventions.yaml` (formalise the three id-shape families).
+- Specs `2026-05-10-spec-folders-migration.yaml` (8 ACs, 6 gating) and `2026-05-10-card-id-field-and-conventions.yaml` (7 ACs, 5 gating) — open, ready for drive.
+- README gains a `## Repository layout` section signposting the four top-level directories.
+
+### Changed
+
+- `.orbit/METHOD.md` and `plugins/orb/skills/setup/METHOD.md` — vocabulary table gains an Id-shape column; new Memory row; new Reference style section names the type-qualifier contract and bare-NNNN shorthand. Files stay byte-equal.
+- `orbit-state` workspace version aligns with plugin (0.4.3 → 0.4.9). Substrate-binary parity gate now passes for terminals running the 0.4.9 binary against the new card schema.
+
+### Fixed
+
+- Spec `2026-05-10-repo-cruft-removal` shipped — `.beads-archive/` and the empty `.claude/worktrees/` removed from the working tree.
+
+### Removed
+
+- `.beads-archive/` (gitignored archived bd state, no longer needed) and `.claude/worktrees/` (empty stale runtime dir).
+
 ## [0.4.8] - 2026-05-10
 
 `/orb:release` gains a substrate-binary parity gate. When `orbit-state/` changed in the release window but the on-PATH `orbit` binary predates the change, release refuses with a three-option resolution path (rebuild formula, set `ORBIT` env, or explicit `--accept-binary-lag` for forward-compatible changes). Closes the defect from 0.4.7 — sidecar-aware skill prose shipped against an older binary, which broke `orbit verify` for any terminal still on brew 0.4.3.
