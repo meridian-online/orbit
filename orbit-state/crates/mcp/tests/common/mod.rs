@@ -178,6 +178,33 @@ pub fn populate_card_with_linked_spec(root: &Path) {
     .unwrap();
 }
 
+/// Expected canonical envelope for `overview` against the two-related-cards
+/// fixture (alpha feeds beta; both planned; no specs; no memories).
+pub fn expected_envelope_for_overview_two_related_cards() -> String {
+    use orbit_state_core::{
+        CardMaturityCounts, MostConnectedCard, OverviewResult, VerbResponse,
+    };
+    let response = VerbResponse::Overview(OverviewResult {
+        open_spec_count: 0,
+        recent_open_spec_ids: vec![],
+        spec_overflow: 0,
+        cards_by_maturity: CardMaturityCounts {
+            planned: 2,
+            emerging: 0,
+            established: 0,
+        },
+        memories: vec![],
+        most_connected_card: Some(MostConnectedCard {
+            slug: "0001-alpha".into(),
+            feature: "alpha".into(),
+            degree: 1,
+        }),
+        orphans: vec!["0001-alpha".into()],
+        orphan_overflow: 0,
+    });
+    orbit_state_core::envelope_ok_string(&response).expect("infallible")
+}
+
 /// Expected canonical envelope for `card.specs` with `slug=0001-alpha`.
 pub fn expected_envelope_for_card_specs_alpha() -> String {
     use orbit_state_core::{CardSpecsEntry, CardSpecsResult, VerbResponse};

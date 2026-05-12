@@ -391,6 +391,17 @@ fn tool_descriptors() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "overview",
+            "description": "Single-screen project synthesis — open specs, cards-by-maturity counts, recent memories, most-connected card, orphan cards. Bounded output regardless of project age.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "memory_cap": { "type": "integer", "minimum": 0 }
+                },
+                "additionalProperties": false
+            }
+        }),
+        json!({
             "name": "choice.show",
             "description": "Show a choice by id.",
             "inputSchema": {

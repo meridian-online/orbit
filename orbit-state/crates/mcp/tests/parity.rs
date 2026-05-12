@@ -219,6 +219,21 @@ fn card_tree_mcp_unknown_id_returns_error_envelope_with_is_error() {
 }
 
 #[test]
+fn overview_mcp_envelope_matches_canonical_envelope() {
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_two_related_cards(dir.path());
+
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({ "name": "overview", "arguments": {} }),
+    );
+    let envelope = inner_envelope_text(&inner);
+
+    let expected = common::expected_envelope_for_overview_two_related_cards();
+    assert_eq!(envelope, expected, "MCP envelope diverged from canonical");
+}
+
+#[test]
 fn card_specs_mcp_envelope_matches_canonical_envelope() {
     let dir = tempfile::tempdir().unwrap();
     common::populate_card_with_linked_spec(dir.path());

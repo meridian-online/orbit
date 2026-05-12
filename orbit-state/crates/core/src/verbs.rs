@@ -101,6 +101,8 @@ pub enum VerbRequest {
     CardTree(CardTreeArgs),
     #[serde(rename = "card.specs")]
     CardSpecs(CardSpecsArgs),
+    #[serde(rename = "overview")]
+    Overview(OverviewArgs),
     #[serde(rename = "choice.show")]
     ChoiceShow(ChoiceShowArgs),
     #[serde(rename = "choice.list")]
@@ -335,6 +337,19 @@ pub struct CardSpecsArgs {
     pub slug: String,
 }
 
+/// Args for `overview` — single-screen project synthesis.
+///
+/// All output is bounded. The optional `memory_cap` mirrors `session.prime`
+/// (default K=10) and applies uniformly to memories, the recent-open-spec
+/// list, and the orphan list so the verb stays single-screen as the project
+/// ages.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct OverviewArgs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_cap: Option<usize>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ChoiceShowArgs {
@@ -434,6 +449,8 @@ pub enum VerbResponse {
     CardTree(CardTreeResult),
     #[serde(rename = "card.specs")]
     CardSpecs(CardSpecsResult),
+    #[serde(rename = "overview")]
+    Overview(OverviewResult),
     #[serde(rename = "choice.show")]
     ChoiceShow(ChoiceShowResult),
     #[serde(rename = "choice.list")]
@@ -575,6 +592,44 @@ pub struct CardSpecsEntry {
     pub status: String,
 }
 
+/// Result for `overview` — single-screen project synthesis. All vectors are
+/// bounded by `memory_cap` (default K=10); overflow counters expose how
+/// much was elided so the caller can scroll the substrate manually if it
+/// matters.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OverviewResult {
+    pub open_spec_count: usize,
+    /// Up to K=10 most-recent open spec ids (by id, which is date-prefixed).
+    pub recent_open_spec_ids: Vec<String>,
+    /// Number of open specs not surfaced because they fell past the cap.
+    pub spec_overflow: usize,
+    pub cards_by_maturity: CardMaturityCounts,
+    pub memories: Vec<Memory>,
+    /// Card with the highest degree (outgoing + incoming `relations:` count;
+    /// `specs:` entries do NOT contribute). Ties broken by lowest numeric id.
+    /// `None` when no card has any relations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub most_connected_card: Option<MostConnectedCard>,
+    /// Cards with `specs: []` AND zero incoming `relations:`. Capped at
+    /// K=10; `orphan_overflow` counts the rest.
+    pub orphans: Vec<String>,
+    pub orphan_overflow: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CardMaturityCounts {
+    pub planned: usize,
+    pub emerging: usize,
+    pub established: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MostConnectedCard {
+    pub slug: String,
+    pub feature: String,
+    pub degree: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChoiceShowResult {
     pub choice: Choice,
@@ -697,6 +752,7 @@ pub fn execute(layout: &OrbitLayout, request: &VerbRequest) -> Result<VerbRespon
         VerbRequest::CardSearch(args) => card_search(layout, args).map(VerbResponse::CardSearch),
         VerbRequest::CardTree(args) => card_tree(layout, args).map(VerbResponse::CardTree),
         VerbRequest::CardSpecs(args) => card_specs(layout, args).map(VerbResponse::CardSpecs),
+        VerbRequest::Overview(args) => overview(layout, args).map(VerbResponse::Overview),
         VerbRequest::ChoiceShow(args) => choice_show(layout, args).map(VerbResponse::ChoiceShow),
         VerbRequest::ChoiceList(args) => choice_list(layout, args).map(VerbResponse::ChoiceList),
         VerbRequest::ChoiceSearch(args) => {
@@ -2096,6 +2152,114 @@ fn relativise_spec_path(path: &Path, orbit_root: &Path) -> String {
         return rel.to_string_lossy().into_owned();
     }
     path.to_string_lossy().into_owned()
+}
+
+fn overview(layout: &OrbitLayout, args: &OverviewArgs) -> Result<OverviewResult> {
+    const VERB: &str = "overview";
+    const DEFAULT_CAP: usize = 10;
+    let cap = args.memory_cap.unwrap_or(DEFAULT_CAP);
+
+    // Open specs — reuse spec.list, then filter and cap.
+    let SpecListResult { specs: all_specs } = spec_list(layout, &SpecListArgs::default())
+        .map_err(|mut e| {
+            e.verb = VERB.into();
+            e
+        })?;
+    let mut open_ids: Vec<String> = all_specs
+        .into_iter()
+        .filter(|s| s.status == "open")
+        .map(|s| s.id)
+        .collect();
+    open_ids.sort(); // chronological since ids are date-prefixed
+    let open_spec_count = open_ids.len();
+    let recent_open_spec_ids: Vec<String> = if open_spec_count > cap {
+        open_ids.into_iter().rev().take(cap).collect::<Vec<_>>().into_iter().rev().collect()
+    } else {
+        open_ids
+    };
+    let spec_overflow = open_spec_count.saturating_sub(recent_open_spec_ids.len());
+
+    // Cards — single pass for maturity counts + degree + orphan detection.
+    let cards = load_all_cards(layout, VERB)?;
+    let mut maturity = CardMaturityCounts {
+        planned: 0,
+        emerging: 0,
+        established: 0,
+    };
+    for card in cards.values() {
+        match card.maturity {
+            crate::schema::CardMaturity::Planned => maturity.planned += 1,
+            crate::schema::CardMaturity::Emerging => maturity.emerging += 1,
+            crate::schema::CardMaturity::Established => maturity.established += 1,
+        }
+    }
+
+    // Reverse-edge index — for both "most-connected" (incoming edges count
+    // toward degree) and "orphans" (zero incoming relations).
+    let reverse = build_reverse_edges(&cards);
+
+    let mut most_connected: Option<MostConnectedCard> = None;
+    let mut best_degree: usize = 0;
+    for (slug, card) in &cards {
+        let outgoing = card.relations.len();
+        let incoming = reverse.get(slug).map(Vec::len).unwrap_or(0);
+        let degree = outgoing + incoming;
+        if degree == 0 {
+            continue;
+        }
+        // New leader if strictly greater, or equal with a lower numeric id.
+        let take = degree > best_degree
+            || (degree == best_degree
+                && most_connected
+                    .as_ref()
+                    .is_some_and(|c| numeric_prefix(slug) < numeric_prefix(&c.slug)));
+        if take || most_connected.is_none() {
+            most_connected = Some(MostConnectedCard {
+                slug: slug.clone(),
+                feature: card.feature.clone(),
+                degree,
+            });
+            best_degree = degree;
+        }
+    }
+
+    // Orphans — cards with specs: [] AND no incoming relations from other
+    // cards. BTreeMap iteration is sorted, so output is deterministic.
+    let mut orphans_all: Vec<String> = cards
+        .iter()
+        .filter(|(slug, card)| {
+            card.specs.is_empty() && reverse.get(*slug).map_or(true, Vec::is_empty)
+        })
+        .map(|(slug, _)| slug.clone())
+        .collect();
+    let orphan_total = orphans_all.len();
+    let orphan_overflow = orphan_total.saturating_sub(cap);
+    orphans_all.truncate(cap);
+
+    // Memories — same shape as session.prime: by timestamp DESC, capped.
+    let mut memories = read_all_memories(layout, VERB)?;
+    memories.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    memories.truncate(cap);
+
+    Ok(OverviewResult {
+        open_spec_count,
+        recent_open_spec_ids,
+        spec_overflow,
+        cards_by_maturity: maturity,
+        memories,
+        most_connected_card: most_connected,
+        orphans: orphans_all,
+        orphan_overflow,
+    })
+}
+
+/// Parse the leading numeric prefix of a card slug (e.g. `"0033"` from
+/// `"0033-see-the-tree"`). Used as the tie-break for `most-connected card`
+/// per ac-03's pinned rule. Returns u32::MAX when no prefix is found so
+/// non-numeric slugs sort last (and lose all ties).
+fn numeric_prefix(slug: &str) -> u32 {
+    let take: String = slug.chars().take_while(|c| c.is_ascii_digit()).collect();
+    take.parse().unwrap_or(u32::MAX)
 }
 
 /// Extract the spec id from a path string as it appears in `card.specs[]`.

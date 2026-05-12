@@ -24,7 +24,8 @@ use orbit_state_core::Error as OrbitError;
 use orbit_state_core::{
     canonicalise_all, envelope_err_string, envelope_ok_string, execute, CanonicaliseReport,
     CardListArgs, CardSearchArgs, CardShowArgs, CardShowResult, CardSpecsArgs, CardSpecsResult,
-    CardTreeArgs, CardTreeEdge, CardTreeResult, ChoiceListArgs, ChoiceListResult,
+    CardTreeArgs, CardTreeEdge, CardTreeResult, ChoiceListArgs, ChoiceListResult, OverviewArgs,
+    OverviewResult,
     ChoiceSearchArgs, ChoiceShowArgs, ChoiceShowResult, MemoryListArgs, MemoryListResult,
     MemoryRememberArgs, MemoryRememberResult, MemorySearchArgs, SessionPrimeArgs,
     SessionPrimeResult, SpecCloseArgs, SpecCloseResult, SpecCreateArgs, SpecCreateResult,
@@ -86,6 +87,13 @@ enum Command {
     Session {
         #[command(subcommand)]
         action: SessionAction,
+    },
+    /// Single-screen project synthesis — open specs, cards-by-maturity,
+    /// recent memories, most-connected card, and orphan cards. Bounded
+    /// output regardless of project age.
+    Overview {
+        #[arg(long)]
+        memory_cap: Option<usize>,
     },
     /// Substrate hygiene check — round-trip every canonical file (ac-16) and
     /// rebuild the index from files (ac-17). Exits non-zero on any drift.
@@ -768,6 +776,9 @@ fn build_request(layout: &OrbitLayout, command: &Command) -> Result<VerbRequest,
                 memory_cap: *memory_cap,
             }),
         },
+        Command::Overview { memory_cap } => VerbRequest::Overview(OverviewArgs {
+            memory_cap: *memory_cap,
+        }),
         Command::Verify => unreachable!(
             "Command::Verify is short-circuited in main() before reaching build_request"
         ),
@@ -805,6 +816,7 @@ fn render_human(response: &VerbResponse) {
         }
         VerbResponse::CardTree(result) => render_card_tree(result),
         VerbResponse::CardSpecs(result) => render_card_specs(result),
+        VerbResponse::Overview(result) => render_overview(result),
         VerbResponse::ChoiceShow(result) => render_choice_show(result),
         VerbResponse::ChoiceList(result) | VerbResponse::ChoiceSearch(result) => {
             render_choice_list(result)
@@ -896,6 +908,47 @@ fn render_tree_edge(edge: &CardTreeEdge, arrow: &str, indent: usize) {
     }
     for child in &edge.target.incoming {
         render_tree_edge(child, "←", indent + 1);
+    }
+}
+
+fn render_overview(result: &OverviewResult) {
+    println!("Open specs: {}", result.open_spec_count);
+    for id in &result.recent_open_spec_ids {
+        println!("  {id}");
+    }
+    if result.spec_overflow > 0 {
+        println!("  +{} more", result.spec_overflow);
+    }
+    println!();
+    println!(
+        "Cards by maturity: planned={}, emerging={}, established={}",
+        result.cards_by_maturity.planned,
+        result.cards_by_maturity.emerging,
+        result.cards_by_maturity.established,
+    );
+    if let Some(mc) = &result.most_connected_card {
+        println!();
+        println!(
+            "Most-connected card: {} (degree {}) — {}",
+            mc.slug, mc.degree, mc.feature
+        );
+    }
+    if !result.orphans.is_empty() {
+        println!();
+        println!("Orphans ({}):", result.orphans.len() + result.orphan_overflow);
+        for slug in &result.orphans {
+            println!("  {slug}");
+        }
+        if result.orphan_overflow > 0 {
+            println!("  +{} more", result.orphan_overflow);
+        }
+    }
+    if !result.memories.is_empty() {
+        println!();
+        println!("Recent memories ({}):", result.memories.len());
+        for m in &result.memories {
+            println!("  {}: {}", m.key, first_line(&m.body));
+        }
     }
 }
 
