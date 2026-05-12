@@ -183,6 +183,41 @@ fn exchange_one(bin: &str, root: &std::path::Path, request: &Value) -> Value {
     })
 }
 
+#[test]
+fn card_tree_mcp_envelope_matches_canonical_envelope() {
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_two_related_cards(dir.path());
+
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({ "name": "card.tree", "arguments": { "slug": "0001-alpha", "depth": 1 } }),
+    );
+    let envelope = inner_envelope_text(&inner);
+
+    let expected = common::expected_envelope_for_card_tree_alpha_depth1();
+    assert_eq!(envelope, expected, "MCP envelope diverged from canonical");
+}
+
+#[test]
+fn card_tree_mcp_unknown_id_returns_error_envelope_with_is_error() {
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_two_related_cards(dir.path());
+    let cards_dir = dir.path().join(".orbit/cards");
+
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({ "name": "card.tree", "arguments": { "slug": "9999" } }),
+    );
+    let result = inner.get("result").expect("has result");
+    assert_eq!(
+        result.get("isError").and_then(Value::as_bool),
+        Some(true),
+        "expected isError=true: {result}"
+    );
+    let envelope = inner_envelope_text(&inner);
+    assert_eq!(envelope, common::expected_envelope_for_card_tree_unknown(&cards_dir));
+}
+
 /// Extract `result.content[0].text` from a JSON-RPC response — that's where
 /// the wire envelope lives in MCP's `tools/call` shape.
 fn inner_envelope_text(response: &Value) -> String {

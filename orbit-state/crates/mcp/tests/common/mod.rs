@@ -103,3 +103,58 @@ pub fn expected_notes_jsonl_for_fixture_note() -> String {
     orbit_state_core::canonical::serialise_json_line(&fixture_note())
         .expect("serialise_json_line is infallible for fixture")
 }
+
+/// Populate `<root>/.orbit/cards/` with two cards joined by a `feeds`
+/// relation: 0001-alpha → 0002-beta. Used by card.tree parity tests.
+pub fn populate_two_related_cards(root: &Path) {
+    let cards_dir = root.join(".orbit/cards");
+    std::fs::create_dir_all(&cards_dir).unwrap();
+    std::fs::write(
+        cards_dir.join("0001-alpha.yaml"),
+        "id: 0001-alpha\nfeature: alpha\ngoal: alpha goal\nmaturity: planned\nrelations:\n- card: 0002-beta\n  type: feeds\n  reason: alpha feeds beta\n",
+    )
+    .unwrap();
+    std::fs::write(
+        cards_dir.join("0002-beta.yaml"),
+        "id: 0002-beta\nfeature: beta\ngoal: beta goal\nmaturity: planned\n",
+    )
+    .unwrap();
+}
+
+/// Expected canonical envelope for `card.tree` with `slug=0001-alpha` and
+/// `depth=1` against the two-related-cards fixture.
+pub fn expected_envelope_for_card_tree_alpha_depth1() -> String {
+    use orbit_state_core::{CardTreeEdge, CardTreeNode, CardTreeResult, VerbResponse};
+    let response = VerbResponse::CardTree(CardTreeResult {
+        root: "0001-alpha".into(),
+        depth: 1,
+        tree: CardTreeNode {
+            slug: "0001-alpha".into(),
+            feature: "alpha".into(),
+            outgoing: vec![CardTreeEdge {
+                kind: "feeds".into(),
+                reason: "alpha feeds beta".into(),
+                target: CardTreeNode {
+                    slug: "0002-beta".into(),
+                    feature: "beta".into(),
+                    outgoing: vec![],
+                    incoming: vec![],
+                    truncated: true,
+                },
+            }],
+            incoming: vec![],
+            truncated: false,
+        },
+    });
+    orbit_state_core::envelope_ok_string(&response).expect("infallible")
+}
+
+/// Expected error envelope for `card.tree` with an unknown numeric id.
+pub fn expected_envelope_for_card_tree_unknown(cards_dir: &Path) -> String {
+    use orbit_state_core::{envelope_err_string, Error};
+    let err = Error::not_found(
+        "card.tree",
+        format!("no entry matching `9999-*` in {}", cards_dir.display()),
+    );
+    envelope_err_string(&err)
+}

@@ -368,6 +368,19 @@ fn tool_descriptors() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "card.tree",
+            "description": "Render the local subgraph from a card (outgoing + incoming `relations:` edges). Default depth is 2; cycle-safe.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["slug"],
+                "properties": {
+                    "slug": { "type": "string" },
+                    "depth": { "type": "integer", "minimum": 0 }
+                },
+                "additionalProperties": false
+            }
+        }),
+        json!({
             "name": "choice.show",
             "description": "Show a choice by id.",
             "inputSchema": {

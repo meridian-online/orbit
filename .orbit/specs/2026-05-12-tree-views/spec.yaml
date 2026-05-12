@@ -10,7 +10,7 @@ acceptance_criteria:
 - id: ac-01
   description: '`orbit card tree <id>` returns the local subgraph from a card — outgoing and incoming `relations:` edges to depth N (default 2), rendered as nested text or `--json`. Walks files; resolves card slugs via the existing prefix-match. Cycle-safe.'
   gate: true
-  checked: false
+  checked: true
 - id: ac-02
   description: '`orbit card specs <id>` lists the specs advancing a card — dereferences the card''s `specs:` array AND cross-checks against each spec''s `cards:` array, surfacing any one-way drift (card claims a spec the spec doesn''t back-reference, or vice versa).'
   gate: false

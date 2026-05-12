@@ -97,6 +97,8 @@ pub enum VerbRequest {
     CardList(CardListArgs),
     #[serde(rename = "card.search")]
     CardSearch(CardSearchArgs),
+    #[serde(rename = "card.tree")]
+    CardTree(CardTreeArgs),
     #[serde(rename = "choice.show")]
     ChoiceShow(ChoiceShowArgs),
     #[serde(rename = "choice.list")]
@@ -305,6 +307,24 @@ pub struct CardSearchArgs {
     pub query: String,
 }
 
+/// Args for `card.tree` — render the local subgraph from a card.
+///
+/// `depth` defaults to 2 (one hop in each direction expanded) and may be 0
+/// (returns just the root with no edges). The graph is cycle-safe: a slug
+/// already seen on the current expansion path is rendered as a truncated
+/// node so the structure doesn't recurse indefinitely.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CardTreeArgs {
+    pub slug: String,
+    #[serde(default = "default_card_tree_depth")]
+    pub depth: u32,
+}
+
+fn default_card_tree_depth() -> u32 {
+    2
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ChoiceShowArgs {
@@ -400,6 +420,8 @@ pub enum VerbResponse {
     CardList(CardListResult),
     #[serde(rename = "card.search")]
     CardSearch(CardListResult),
+    #[serde(rename = "card.tree")]
+    CardTree(CardTreeResult),
     #[serde(rename = "choice.show")]
     ChoiceShow(ChoiceShowResult),
     #[serde(rename = "choice.list")]
@@ -479,6 +501,43 @@ pub struct CardSummary {
     pub feature: String,
     pub goal: String,
     pub maturity: String,
+}
+
+/// Result for `card.tree` — local subgraph from a root card.
+///
+/// The `tree` node is the resolved root; its `outgoing` and `incoming`
+/// vectors carry the immediate edges (one hop). Each edge's `target` is
+/// itself a `CardTreeNode`, recursing up to the configured depth. At the
+/// depth boundary or on a revisited slug, `target.truncated = true` and
+/// its `outgoing` / `incoming` vectors are empty.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CardTreeResult {
+    pub root: String,
+    pub depth: u32,
+    pub tree: CardTreeNode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CardTreeNode {
+    pub slug: String,
+    pub feature: String,
+    pub outgoing: Vec<CardTreeEdge>,
+    pub incoming: Vec<CardTreeEdge>,
+    /// True when this node was reached at the depth boundary or on a
+    /// cycle revisit — its edges are intentionally elided.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CardTreeEdge {
+    pub kind: String,
+    pub reason: String,
+    pub target: CardTreeNode,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -601,6 +660,7 @@ pub fn execute(layout: &OrbitLayout, request: &VerbRequest) -> Result<VerbRespon
         VerbRequest::CardShow(args) => card_show(layout, args).map(VerbResponse::CardShow),
         VerbRequest::CardList(args) => card_list(layout, args).map(VerbResponse::CardList),
         VerbRequest::CardSearch(args) => card_search(layout, args).map(VerbResponse::CardSearch),
+        VerbRequest::CardTree(args) => card_tree(layout, args).map(VerbResponse::CardTree),
         VerbRequest::ChoiceShow(args) => choice_show(layout, args).map(VerbResponse::ChoiceShow),
         VerbRequest::ChoiceList(args) => choice_list(layout, args).map(VerbResponse::ChoiceList),
         VerbRequest::ChoiceSearch(args) => {
@@ -1680,6 +1740,201 @@ fn card_search(layout: &OrbitLayout, args: &CardSearchArgs) -> Result<CardListRe
         })
         .collect();
     Ok(CardListResult { cards: matched })
+}
+
+fn card_tree(layout: &OrbitLayout, args: &CardTreeArgs) -> Result<CardTreeResult> {
+    const VERB: &str = "card.tree";
+    validate_card_slug(VERB, &args.slug)?;
+
+    // Resolve the root slug — same prefix-match semantics as card.show.
+    let resolved = resolve_numeric_slug(VERB, &layout.cards_dir(), &args.slug)?
+        .unwrap_or_else(|| args.slug.clone());
+    let root_path = layout.card_file(&resolved);
+    if !root_path.exists() {
+        return Err(Error::not_found(
+            VERB,
+            format!("no card at {}", root_path.display()),
+        ));
+    }
+
+    // Load every card once into a slug→Card map, then build forward and
+    // reverse edge indexes. Walking cards once keeps the cost linear in
+    // card count regardless of tree depth.
+    let cards = load_all_cards(layout, VERB)?;
+    if !cards.contains_key(&resolved) {
+        // Path existed but parse failed earlier — shouldn't happen, but
+        // guard against silent divergence between fs and parsed view.
+        return Err(Error::not_found(
+            VERB,
+            format!("card {resolved} not present in loaded card set"),
+        ));
+    }
+
+    let forward = build_forward_edges(&cards);
+    let reverse = build_reverse_edges(&cards);
+
+    let mut visited = std::collections::HashSet::new();
+    let tree = expand_card_node(&resolved, &cards, &forward, &reverse, args.depth, &mut visited);
+
+    Ok(CardTreeResult {
+        root: resolved,
+        depth: args.depth,
+        tree,
+    })
+}
+
+/// Load every card under `.orbit/cards/` into a `slug -> Card` map. Used by
+/// `card.tree` to build forward and reverse edge indexes in one pass.
+fn load_all_cards(
+    layout: &OrbitLayout,
+    verb: &'static str,
+) -> Result<BTreeMap<String, Card>> {
+    let files = layout
+        .list_card_files()
+        .map_err(|e| Error::unavailable(verb, format!("list cards: {e}")))?;
+    let mut out = BTreeMap::new();
+    for path in files {
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| Error::unavailable(verb, format!("read {}: {e}", path.display())))?;
+        let card: Card = parse_yaml(&text).map_err(|mut e| {
+            e.verb = verb.into();
+            e
+        })?;
+        let slug = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| {
+                Error::malformed(verb, format!("card path has no stem: {}", path.display()))
+            })?
+            .to_string();
+        out.insert(slug, card);
+    }
+    Ok(out)
+}
+
+/// Forward edges per card: `slug -> Vec<(target_slug, kind, reason)>`.
+fn build_forward_edges(
+    cards: &BTreeMap<String, Card>,
+) -> BTreeMap<String, Vec<(String, String, String)>> {
+    let mut out: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
+    for (slug, card) in cards {
+        let edges = card
+            .relations
+            .iter()
+            .map(|r| (r.card.clone(), relation_kind_str(&r.kind).into(), r.reason.clone()))
+            .collect();
+        out.insert(slug.clone(), edges);
+    }
+    out
+}
+
+/// Reverse edges: for each target slug, the list of (source_slug, kind,
+/// reason) pointing to it. Resolved against the card set's slug
+/// vocabulary; edges to unknown slugs are kept verbatim so the tree
+/// surfaces dangling references rather than silently dropping them.
+fn build_reverse_edges(
+    cards: &BTreeMap<String, Card>,
+) -> BTreeMap<String, Vec<(String, String, String)>> {
+    let mut out: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
+    for (source, card) in cards {
+        for relation in &card.relations {
+            out.entry(relation.card.clone()).or_default().push((
+                source.clone(),
+                relation_kind_str(&relation.kind).into(),
+                relation.reason.clone(),
+            ));
+        }
+    }
+    out
+}
+
+fn relation_kind_str(kind: &crate::schema::RelationKind) -> &'static str {
+    use crate::schema::RelationKind;
+    match kind {
+        RelationKind::DependsOn => "depends-on",
+        RelationKind::Feeds => "feeds",
+        RelationKind::Supersedes => "supersedes",
+        RelationKind::SupersededBy => "superseded-by",
+    }
+}
+
+/// Recursively expand a node up to `depth` hops. Cycle-safe: re-visiting a
+/// slug already on the current expansion path produces a truncated leaf.
+fn expand_card_node(
+    slug: &str,
+    cards: &BTreeMap<String, Card>,
+    forward: &BTreeMap<String, Vec<(String, String, String)>>,
+    reverse: &BTreeMap<String, Vec<(String, String, String)>>,
+    depth: u32,
+    visited: &mut std::collections::HashSet<String>,
+) -> CardTreeNode {
+    let feature = cards
+        .get(slug)
+        .map(|c| c.feature.clone())
+        .unwrap_or_default();
+
+    // Already visited → return a truncated leaf to break the cycle without
+    // duplicating downstream edges. The caller still sees the slug and
+    // feature; the structure is bounded.
+    if visited.contains(slug) {
+        return CardTreeNode {
+            slug: slug.to_string(),
+            feature,
+            outgoing: Vec::new(),
+            incoming: Vec::new(),
+            truncated: true,
+        };
+    }
+    // Depth boundary → leaf node with the slug only, no edges expanded.
+    if depth == 0 {
+        return CardTreeNode {
+            slug: slug.to_string(),
+            feature,
+            outgoing: Vec::new(),
+            incoming: Vec::new(),
+            truncated: true,
+        };
+    }
+
+    visited.insert(slug.to_string());
+
+    let outgoing = forward
+        .get(slug)
+        .map(|edges| {
+            edges
+                .iter()
+                .map(|(target_slug, kind, reason)| CardTreeEdge {
+                    kind: kind.clone(),
+                    reason: reason.clone(),
+                    target: expand_card_node(target_slug, cards, forward, reverse, depth - 1, visited),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let incoming = reverse
+        .get(slug)
+        .map(|edges| {
+            edges
+                .iter()
+                .map(|(source_slug, kind, reason)| CardTreeEdge {
+                    kind: kind.clone(),
+                    reason: reason.clone(),
+                    target: expand_card_node(source_slug, cards, forward, reverse, depth - 1, visited),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    visited.remove(slug);
+
+    CardTreeNode {
+        slug: slug.to_string(),
+        feature,
+        outgoing,
+        incoming,
+        truncated: false,
+    }
 }
 
 fn collect_card_summaries(layout: &OrbitLayout, verb: &'static str) -> Result<Vec<CardSummary>> {

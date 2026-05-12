@@ -23,7 +23,8 @@ use orbit_state_core::layout::OrbitLayout;
 use orbit_state_core::Error as OrbitError;
 use orbit_state_core::{
     canonicalise_all, envelope_err_string, envelope_ok_string, execute, CanonicaliseReport,
-    CardListArgs, CardSearchArgs, CardShowArgs, CardShowResult, ChoiceListArgs, ChoiceListResult,
+    CardListArgs, CardSearchArgs, CardShowArgs, CardShowResult, CardTreeArgs, CardTreeEdge,
+    CardTreeResult, ChoiceListArgs, ChoiceListResult,
     ChoiceSearchArgs, ChoiceShowArgs, ChoiceShowResult, MemoryListArgs, MemoryListResult,
     MemoryRememberArgs, MemoryRememberResult, MemorySearchArgs, SessionPrimeArgs,
     SessionPrimeResult, SpecCloseArgs, SpecCloseResult, SpecCreateArgs, SpecCreateResult,
@@ -135,6 +136,13 @@ enum CardAction {
         maturity: Option<String>,
     },
     Search { query: String },
+    /// Render the local subgraph from a card (outgoing + incoming
+    /// `relations:` edges). Default depth is 2.
+    Tree {
+        slug: String,
+        #[arg(long, default_value_t = 2)]
+        depth: u32,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -734,6 +742,10 @@ fn build_request(layout: &OrbitLayout, command: &Command) -> Result<VerbRequest,
             CardAction::Search { query } => VerbRequest::CardSearch(CardSearchArgs {
                 query: query.clone(),
             }),
+            CardAction::Tree { slug, depth } => VerbRequest::CardTree(CardTreeArgs {
+                slug: slug.clone(),
+                depth: *depth,
+            }),
         },
         Command::Choice { action } => match action {
             ChoiceAction::Show { id } => VerbRequest::ChoiceShow(ChoiceShowArgs { id: id.clone() }),
@@ -784,6 +796,7 @@ fn render_human(response: &VerbResponse) {
         VerbResponse::CardList(result) | VerbResponse::CardSearch(result) => {
             render_card_list(result)
         }
+        VerbResponse::CardTree(result) => render_card_tree(result),
         VerbResponse::ChoiceShow(result) => render_choice_show(result),
         VerbResponse::ChoiceList(result) | VerbResponse::ChoiceSearch(result) => {
             render_choice_list(result)
@@ -831,6 +844,50 @@ fn render_card_show(result: &CardShowResult) {
     println!("maturity: {:?}", result.card.maturity);
     if !result.card.specs.is_empty() {
         println!("specs:    {}", result.card.specs.join(", "));
+    }
+}
+
+fn render_card_tree(result: &CardTreeResult) {
+    println!("{} (depth {})", result.root, result.depth);
+    if !result.tree.feature.is_empty() {
+        println!("  {}", result.tree.feature);
+    }
+    if result.tree.outgoing.is_empty() && result.tree.incoming.is_empty() {
+        println!();
+        println!("(no relations)");
+        return;
+    }
+    if !result.tree.outgoing.is_empty() {
+        println!();
+        println!("outgoing:");
+        for edge in &result.tree.outgoing {
+            render_tree_edge(edge, "→", 0);
+        }
+    }
+    if !result.tree.incoming.is_empty() {
+        println!();
+        println!("incoming:");
+        for edge in &result.tree.incoming {
+            render_tree_edge(edge, "←", 0);
+        }
+    }
+}
+
+fn render_tree_edge(edge: &CardTreeEdge, arrow: &str, indent: usize) {
+    let pad = "  ".repeat(indent + 1);
+    let truncated = if edge.target.truncated { " …" } else { "" };
+    println!(
+        "{pad}{arrow} {} {}{truncated}",
+        edge.kind, edge.target.slug
+    );
+    if !edge.target.feature.is_empty() {
+        println!("{}  {}", "  ".repeat(indent + 2), edge.target.feature);
+    }
+    for child in &edge.target.outgoing {
+        render_tree_edge(child, "→", indent + 1);
+    }
+    for child in &edge.target.incoming {
+        render_tree_edge(child, "←", indent + 1);
     }
 }
 
