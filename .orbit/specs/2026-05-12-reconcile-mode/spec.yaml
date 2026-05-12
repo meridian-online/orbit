@@ -1,0 +1,40 @@
+id: 2026-05-12-reconcile-mode
+goal: Extend `orbit canonicalise` with a `--reconcile` mode that brings legacy yaml content (across Card / Spec / Choice / Memory) into the canonical schema by mapping known fields per a built-in registry, dropping per-rule, or quarantining unknown fields into a per-file `<name>.legacy.yaml` sidecar — invokable any time, never on routine paths, with the ac-01 strict-parse invariant on every schema struct unchanged.
+cards:
+- 0032-brownfield-spec-migration
+status: open
+labels:
+- spec
+acceptance_criteria:
+- id: ac-01
+  description: The ac-01 strict-parse invariant is preserved end-to-end. `deny_unknown_fields` stays on every canonical schema struct in `orbit-state/crates/core/src/schema.rs`. `orbit verify`, the canonical reader on the routine `orbit canonicalise` path (without `--reconcile`), and every other entry point continue to reject unknown fields strictly. The permissive read introduced for `--reconcile` lives in a new module (`reconcile.rs`) and is reachable only when the flag is passed.
+  gate: true
+  checked: false
+- id: ac-02
+  description: '`orbit canonicalise --reconcile` rewrites canonical files by applying dispositions from a built-in registry in `reconcile.rs` — known legacy field names are mapped onto their canonical equivalents or dropped per the rule, the disposition is recorded in the run summary, and the resulting struct is handed to the existing canonical writer for byte-canonicalisation. The run summary names every disposition applied (entity, file path, field, action).'
+  gate: false
+  checked: false
+- id: ac-03
+  description: '`orbit canonicalise --reconcile --dry-run` lists every unknown field across the substrate by file path and proposed disposition (map / drop / quarantine), no file is rewritten, and the exit code signals whether a non-dry-run would change anything. JSON envelope shape mirrors `orbit audit drift`''s existing dry-run shape.'
+  gate: true
+  checked: false
+- id: ac-04
+  description: Unknown fields without a registry rule default to quarantine, not silent drop. The field's content lands in a sibling `<name>.legacy.yaml` adjacent to the canonical file — `.orbit/specs/<id>/spec.legacy.yaml` for specs, `.orbit/cards/<slug>.legacy.yaml` for cards, equivalent for choices and memories — with yaml structure preserved. The substrate never silently destroys content for unknown fields.
+  gate: true
+  checked: false
+- id: ac-05
+  description: '`--reconcile` operates across all four canonical entity types — Card, Spec, Choice, Memory — using `Card::FIELDS`, `Spec::FIELDS`, `Choice::FIELDS`, `Memory::FIELDS` as the canonical allow-set per type. Registry rules are keyed by `(entity_type, field_name)`. The default registry seeds known mappings for legacy spec fields encountered in the substrate (e.g. `version`, `date_opened`, `predecessor_evidence`, `constraints`, `exit_conditions` for Spec) and from any bd-era legacy fields visible in `.orbit/archive/`.'
+  gate: false
+  checked: false
+- id: ac-06
+  description: The verb is idempotent. A clean tree → no-op (exit 0, empty disposition list). A tree where every unknown field has a registry rule → rewrite once, then re-running is a no-op. A tree with existing quarantine sidecars where the same content would be re-quarantined → the sidecar is not rewritten. Idempotency holds for `--dry-run` and the non-dry-run path equally.
+  gate: false
+  checked: false
+- id: ac-07
+  description: '`--reconcile` is not invoked by `orbit verify`, by any pre-commit or post-commit hook in this repo, or by `/orb:setup`''s greenfield path — it is a mode the author or agent invokes deliberately. `orbit verify` continues to fail strictly on unknown fields when invoked without `--reconcile`, with no permissive escape hatch persisting in routine paths.'
+  gate: false
+  checked: false
+- id: ac-08
+  description: 'Framework wires land in the same spec — without these the verb exists but the framework does not surface it. (a) `/orb:setup`''s brownfield path invokes or instructs the agent to invoke `orbit canonicalise --reconcile` when legacy field content is detected (e.g. by a prior `orbit audit drift` showing non-empty drift). (b) Card 0030 (canonical-schema-and-glossary) names `orbit canonicalise --reconcile` as the on-ramp from legacy field shapes to the canonical schema. (c) A new MADR choice file `.orbit/choices/0023-reconcile-as-canonicalise-mode.yaml` is authored and accepted, recording the surface decision (alternatives considered: separate verb, new verb wrapping canonicalise; chosen: mode on canonicalise) with reasoning drawn from this spec''s interview. (d) Card 0032''s scenarios that reference the legacy verb name `orbit spec migrate-fields` are reworded against `orbit canonicalise --reconcile` and the card''s `specs` array is updated to reference this spec.'
+  gate: true
+  checked: false

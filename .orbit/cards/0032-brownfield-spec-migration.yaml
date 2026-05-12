@@ -41,7 +41,8 @@ scenarios:
   when: enforcement is examined
   then: orbit-state ships a `spec migrate-fields` verb alongside `spec migrate-layout`, the /orb:setup skill's brownfield path invokes (or instructs the agent to invoke) this verb when legacy spec content is detected, and the canonical schema doc (card 0030) names this verb as the on-ramp from legacy field shapes — without these wires the card describes intent but the framework does not surface it
   gate: true
-specs: []
+specs:
+- .orbit/specs/2026-05-12-reconcile-mode/spec.yaml
 relations:
 - card: 0020-orbit-state
   type: feeds
