@@ -1,6 +1,7 @@
 id: 2026-05-12-tree-views
 goal: Ship navigation and synthesis verbs that make the existing orbit substrate readable as a tree of knowledge — card.tree, card.specs reverse-lookup, overview, graph render, drift audit — read-only, file-walking, no new tables
 cards:
+- 0033-see-the-tree
 - 0030-canonical-schema-and-glossary
 status: open
 labels:

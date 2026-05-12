@@ -1,0 +1,65 @@
+id: 0033-see-the-tree
+feature: See the tree — navigation and synthesis verbs that make the orbit substrate legible
+as_a: orbit author or agent
+i_want: a small set of read-only verbs that surface the cards-choices-specs-memories graph as a tree of knowledge — subgraph from any card, reverse-lookups, single-screen overview, visual render, drift audit
+so_that: the substrate's reach is *experienced* not just *stored* — I see the state of the project at a glance, find what touches what without grep, and notice drift mechanically rather than by accident
+goal: the orbit substrate is readable as a tree of knowledge; project state is one verb away; the graph that cards / specs / choices form is traversable from any node; synthesis stays bounded as the project ages — so the value held in the substrate is reachable without digging
+maturity: planned
+scenarios:
+- name: Subgraph view from any card
+  given: I am reading or working on a particular card
+  when: I ask what the card connects to
+  then: '`orbit card tree <id>` returns the local relations graph at depth 2 by default — outgoing and incoming edges in one view — not a global dump and not a grep over `.orbit/cards/`'
+  gate: true
+- name: Single-screen project state
+  given: a fresh session, or a return after a long absence
+  when: I ask "where are we?"
+  then: '`orbit overview` returns one screen: open spec count + ids, cards-by-maturity (planned / emerging / established), recent memories, most-connected card, and orphans (cards with no specs and no incoming relations) — bounded, scannable, no scrolling required'
+  gate: true
+- name: Reverse-lookup is fluent
+  given: a card with a `specs:` array
+  when: I ask which specs advance this card
+  then: '`orbit card specs <id>` answers in one verb, and the verb cross-checks against each spec''s `cards:` array — surfacing one-way drift (a card claims a spec the spec doesn''t back-reference) without me having to look'
+  gate: false
+- name: Visual graph render on demand
+  given: I want to share or revisit the project shape visually
+  when: I run `orbit graph`
+  then: pasteable mermaid (default) or graphviz output goes to stdout — suitable for a README, a browser render, or a working-doc paste — with `--filter` flags to scope (e.g. `--card 0028 --depth 2`)
+  gate: false
+- name: Drift is mechanically detected
+  given: cards, specs, or choices using a field absent from the canonical schema
+  when: '`orbit audit drift` runs'
+  then: the drift is flagged with file path, offending field, and a proposed disposition (map / drop / quarantine, matching card 0032's vocabulary) — humans triage, mechanism finds; this is the audit pass card 0030 names but does not itself ship
+  gate: false
+- name: Synthesis stays bounded as the project ages
+  given: a project years old with hundreds of cards and specs
+  when: overview runs
+  then: output remains single-screen; the token cost of asking "where are we?" does not grow with project age; bounded-output formulas mirror `session prime`
+  gate: false
+- name: Surfacing is reachable without digging
+  given: a new session
+  when: '`session prime` runs'
+  then: '`orbit overview` is named in the prime output as the next-step verb — the substrate''s reach is visible by default, not discoverable only by reading source or skill prompts'
+  gate: false
+- name: Wired into the framework
+  given: this card declares see-the-tree as a first-class capability
+  when: enforcement is examined
+  then: the verbs exist on orbit-state (`card tree`, `card specs`, `overview`, `graph`, `audit drift`), `session prime` references `overview` in its output, and at least one SKILL.md (`setup`, `drive`, `rally`) names the navigation verbs where browsing the tree is the natural next move — without these wires the verbs ship but nobody reaches for them
+  gate: true
+specs:
+- .orbit/specs/2026-05-12-tree-views/spec.yaml
+relations:
+- card: 0026-executive-communication
+  type: feeds
+  reason: serves pillar 1 (executive interaction) — without these verbs the author reads YAML files to know the state of the project; with them, one verb returns one screen, paying the compression cost in the substrate not in the author's time
+- card: 0020-orbit-state
+  type: feeds
+  reason: serves pillar 3 (state-persistence) — the substrate's value is only realised when the state it holds can be surfaced; see-the-tree is the surfacing layer that makes orbit-state's investment legible
+- card: 0030-canonical-schema-and-glossary
+  type: feeds
+  reason: the drift-audit verb (`orbit audit drift`) ships the mechanical drift-detection scenario from card 0030 — the canonical schema becomes mechanically tied to reality rather than a write-once aspiration
+references:
+- '.orbit/cards/0025-codebase-mastery.yaml: sibling capability on the code-domain side — same legibility principle (token-frugal, bounded output) applied to source code rather than the orbit substrate; the two share a design contract but no implementation surface'
+- '.orbit/specs/2026-05-12-tree-views/spec.yaml: the spec that advances this card'
+notes:
+- surfaced 2026-05-12 during a diagnostic conversation — the observation was that orbit had built a rich schema substrate (orbit-state, ID conventions, strict parse, atomic writes) but no navigation or synthesis surface, so the tree of knowledge existed structurally but not experientially; this card captures the missing half
