@@ -23,8 +23,8 @@ use orbit_state_core::layout::OrbitLayout;
 use orbit_state_core::Error as OrbitError;
 use orbit_state_core::{
     canonicalise_all, envelope_err_string, envelope_ok_string, execute, CanonicaliseReport,
-    CardListArgs, CardSearchArgs, CardShowArgs, CardShowResult, CardTreeArgs, CardTreeEdge,
-    CardTreeResult, ChoiceListArgs, ChoiceListResult,
+    CardListArgs, CardSearchArgs, CardShowArgs, CardShowResult, CardSpecsArgs, CardSpecsResult,
+    CardTreeArgs, CardTreeEdge, CardTreeResult, ChoiceListArgs, ChoiceListResult,
     ChoiceSearchArgs, ChoiceShowArgs, ChoiceShowResult, MemoryListArgs, MemoryListResult,
     MemoryRememberArgs, MemoryRememberResult, MemorySearchArgs, SessionPrimeArgs,
     SessionPrimeResult, SpecCloseArgs, SpecCloseResult, SpecCreateArgs, SpecCreateResult,
@@ -143,6 +143,10 @@ enum CardAction {
         #[arg(long, default_value_t = 2)]
         depth: u32,
     },
+    /// List specs advancing a card, with bidirectional link health.
+    /// Surfaces drift where the card's `specs:` and the spec's `cards:`
+    /// arrays disagree.
+    Specs { slug: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -746,6 +750,9 @@ fn build_request(layout: &OrbitLayout, command: &Command) -> Result<VerbRequest,
                 slug: slug.clone(),
                 depth: *depth,
             }),
+            CardAction::Specs { slug } => VerbRequest::CardSpecs(CardSpecsArgs {
+                slug: slug.clone(),
+            }),
         },
         Command::Choice { action } => match action {
             ChoiceAction::Show { id } => VerbRequest::ChoiceShow(ChoiceShowArgs { id: id.clone() }),
@@ -797,6 +804,7 @@ fn render_human(response: &VerbResponse) {
             render_card_list(result)
         }
         VerbResponse::CardTree(result) => render_card_tree(result),
+        VerbResponse::CardSpecs(result) => render_card_specs(result),
         VerbResponse::ChoiceShow(result) => render_choice_show(result),
         VerbResponse::ChoiceList(result) | VerbResponse::ChoiceSearch(result) => {
             render_choice_list(result)
@@ -888,6 +896,39 @@ fn render_tree_edge(edge: &CardTreeEdge, arrow: &str, indent: usize) {
     }
     for child in &edge.target.incoming {
         render_tree_edge(child, "←", indent + 1);
+    }
+}
+
+fn render_card_specs(result: &CardSpecsResult) {
+    println!("card: {}", result.root);
+    if result.specs.is_empty() {
+        println!("(no linked specs)");
+        return;
+    }
+    println!();
+    for entry in &result.specs {
+        let marker = match (entry.listed_on_card, entry.back_referenced_by_spec) {
+            (true, true) => "✓",
+            (true, false) => "→",  // card claims spec, spec doesn't back-ref
+            (false, true) => "←",  // spec claims card, card doesn't list
+            (false, false) => "?", // shouldn't happen in normal flow
+        };
+        println!(
+            "  {} {}\t{}\t{}",
+            marker, entry.spec_id, entry.status, entry.spec_path
+        );
+        if !entry.listed_on_card {
+            println!("      drift: spec back-references card, but card.specs[] does not list this spec");
+        }
+        if !entry.back_referenced_by_spec && entry.status != "missing" && entry.status != "parse-failed" {
+            println!("      drift: card lists this spec, but spec.cards[] does not back-reference the card");
+        }
+        if entry.status == "missing" {
+            println!("      drift: card lists this spec, but the spec file is missing on disk");
+        }
+        if entry.status == "parse-failed" {
+            println!("      drift: spec file failed to parse — can't verify back-reference");
+        }
     }
 }
 

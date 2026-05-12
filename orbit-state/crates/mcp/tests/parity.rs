@@ -218,6 +218,21 @@ fn card_tree_mcp_unknown_id_returns_error_envelope_with_is_error() {
     assert_eq!(envelope, common::expected_envelope_for_card_tree_unknown(&cards_dir));
 }
 
+#[test]
+fn card_specs_mcp_envelope_matches_canonical_envelope() {
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_card_with_linked_spec(dir.path());
+
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({ "name": "card.specs", "arguments": { "slug": "0001-alpha" } }),
+    );
+    let envelope = inner_envelope_text(&inner);
+
+    let expected = common::expected_envelope_for_card_specs_alpha();
+    assert_eq!(envelope, expected, "MCP envelope diverged from canonical");
+}
+
 /// Extract `result.content[0].text` from a JSON-RPC response — that's where
 /// the wire envelope lives in MCP's `tools/call` shape.
 fn inner_envelope_text(response: &Value) -> String {

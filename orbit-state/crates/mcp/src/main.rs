@@ -381,6 +381,16 @@ fn tool_descriptors() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "card.specs",
+            "description": "List specs advancing a card, with bidirectional link health. Surfaces drift where card.specs[] and spec.cards[] disagree.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["slug"],
+                "properties": { "slug": { "type": "string" } },
+                "additionalProperties": false
+            }
+        }),
+        json!({
             "name": "choice.show",
             "description": "Show a choice by id.",
             "inputSchema": {

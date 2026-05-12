@@ -480,6 +480,34 @@ fn card_tree_cli_unknown_id_emits_canonical_err_envelope() {
     assert_eq!(actual, expected, "error envelope diverged from canonical");
 }
 
+#[test]
+fn card_specs_cli_json_matches_canonical_envelope() {
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_card_with_linked_spec(dir.path());
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args([
+            "--root", dir.path().to_str().unwrap(),
+            "--json", "card", "specs", "0001-alpha",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run orbit cli");
+
+    assert!(
+        output.status.success(),
+        "CLI exited non-zero: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    let actual = stdout.trim_end_matches('\n');
+    let expected = common::expected_envelope_for_card_specs_alpha();
+    assert_eq!(actual, expected, "CLI envelope diverged from canonical");
+}
+
 // Helper visible to ensure the test binary depends on the CLI binary.
 #[allow(dead_code)]
 fn _binary_dep_anchor(_p: &Path) {}

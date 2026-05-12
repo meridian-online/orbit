@@ -29,8 +29,9 @@ pub use sqlite_link::{link_sanity_check, sqlite_version};
 pub use verify::{verify_all, RoundTripFailure, RoundTripFailureKind, VerifyOutcome};
 pub use verbs::{
     envelope_err, envelope_err_string, envelope_ok, envelope_ok_string, execute, CardListArgs,
-    CardListResult, CardSearchArgs, CardShowArgs, CardShowResult, CardSummary, CardTreeArgs,
-    CardTreeEdge, CardTreeNode, CardTreeResult, ChoiceListArgs,
+    CardListResult, CardSearchArgs, CardShowArgs, CardShowResult, CardSpecsArgs, CardSpecsEntry,
+    CardSpecsResult, CardSummary, CardTreeArgs, CardTreeEdge, CardTreeNode, CardTreeResult,
+    ChoiceListArgs,
     ChoiceListResult, ChoiceSearchArgs, ChoiceShowArgs, ChoiceShowResult, ChoiceSummary,
     MemoryListArgs, MemoryListResult, MemoryRememberArgs, MemoryRememberResult, MemorySearchArgs,
     SessionPrimeArgs, SessionPrimeResult, SpecCloseArgs, SpecCloseResult, SpecCreateArgs,

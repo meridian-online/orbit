@@ -158,3 +158,38 @@ pub fn expected_envelope_for_card_tree_unknown(cards_dir: &Path) -> String {
     );
     envelope_err_string(&err)
 }
+
+/// Populate `<root>/.orbit/` with one card (`0001-alpha`) listing a spec
+/// (`s1`) that back-references it. Used by card.specs parity tests.
+pub fn populate_card_with_linked_spec(root: &Path) {
+    let cards_dir = root.join(".orbit/cards");
+    std::fs::create_dir_all(&cards_dir).unwrap();
+    std::fs::write(
+        cards_dir.join("0001-alpha.yaml"),
+        "id: 0001-alpha\nfeature: alpha\ngoal: alpha goal\nmaturity: planned\nspecs:\n- .orbit/specs/s1/spec.yaml\n",
+    )
+    .unwrap();
+    let spec_dir = root.join(".orbit/specs/s1");
+    std::fs::create_dir_all(&spec_dir).unwrap();
+    std::fs::write(
+        spec_dir.join("spec.yaml"),
+        "id: s1\ngoal: spec one\ncards:\n- 0001-alpha\nstatus: open\n",
+    )
+    .unwrap();
+}
+
+/// Expected canonical envelope for `card.specs` with `slug=0001-alpha`.
+pub fn expected_envelope_for_card_specs_alpha() -> String {
+    use orbit_state_core::{CardSpecsEntry, CardSpecsResult, VerbResponse};
+    let response = VerbResponse::CardSpecs(CardSpecsResult {
+        root: "0001-alpha".into(),
+        specs: vec![CardSpecsEntry {
+            spec_id: "s1".into(),
+            spec_path: ".orbit/specs/s1/spec.yaml".into(),
+            listed_on_card: true,
+            back_referenced_by_spec: true,
+            status: "open".into(),
+        }],
+    });
+    orbit_state_core::envelope_ok_string(&response).expect("infallible")
+}

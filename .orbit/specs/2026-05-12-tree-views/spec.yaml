@@ -14,7 +14,7 @@ acceptance_criteria:
 - id: ac-02
   description: '`orbit card specs <id>` lists the specs advancing a card — dereferences the card''s `specs:` array AND cross-checks against each spec''s `cards:` array, surfacing any one-way drift (card claims a spec the spec doesn''t back-reference, or vice versa).'
   gate: false
-  checked: false
+  checked: true
 - id: ac-03
   description: '`orbit overview` produces a single-screen synthesis bounded by the same shape as `session prime`: open spec count + last K=10 spec ids by id (with `+N more` suffix when count exceeds K), cards-by-maturity counts (planned / emerging / established), recent memories (last K=10), most-connected card (degree = outgoing `relations:` count + incoming `relations:` references from other cards; `specs:` array entries do NOT count toward connectivity; ties resolved by lowest numeric card id), and orphans (cards with `specs: []` AND zero incoming `relations:` from any other card).'
   gate: true

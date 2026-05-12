@@ -99,6 +99,8 @@ pub enum VerbRequest {
     CardSearch(CardSearchArgs),
     #[serde(rename = "card.tree")]
     CardTree(CardTreeArgs),
+    #[serde(rename = "card.specs")]
+    CardSpecs(CardSpecsArgs),
     #[serde(rename = "choice.show")]
     ChoiceShow(ChoiceShowArgs),
     #[serde(rename = "choice.list")]
@@ -325,6 +327,14 @@ fn default_card_tree_depth() -> u32 {
     2
 }
 
+/// Args for `card.specs` — list specs that advance a card, with bidirectional
+/// link health.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CardSpecsArgs {
+    pub slug: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ChoiceShowArgs {
@@ -422,6 +432,8 @@ pub enum VerbResponse {
     CardSearch(CardListResult),
     #[serde(rename = "card.tree")]
     CardTree(CardTreeResult),
+    #[serde(rename = "card.specs")]
+    CardSpecs(CardSpecsResult),
     #[serde(rename = "choice.show")]
     ChoiceShow(ChoiceShowResult),
     #[serde(rename = "choice.list")]
@@ -538,6 +550,29 @@ pub struct CardTreeEdge {
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+/// Result for `card.specs` — every spec that's linked to a card by either
+/// direction (card → spec via `card.specs[]`, or spec → card via
+/// `spec.cards[]`). Each entry names whether both directions agree; one-way
+/// references surface as drift.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CardSpecsResult {
+    pub root: String,
+    pub specs: Vec<CardSpecsEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CardSpecsEntry {
+    pub spec_id: String,
+    pub spec_path: String,
+    /// True if the card's `specs:` array lists this spec.
+    pub listed_on_card: bool,
+    /// True if the spec's `cards:` array back-references this card.
+    pub back_referenced_by_spec: bool,
+    /// `open`, `closed`, `missing`, or `parse-failed` — gives the caller
+    /// enough context to triage drift without re-reading the spec.
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -661,6 +696,7 @@ pub fn execute(layout: &OrbitLayout, request: &VerbRequest) -> Result<VerbRespon
         VerbRequest::CardList(args) => card_list(layout, args).map(VerbResponse::CardList),
         VerbRequest::CardSearch(args) => card_search(layout, args).map(VerbResponse::CardSearch),
         VerbRequest::CardTree(args) => card_tree(layout, args).map(VerbResponse::CardTree),
+        VerbRequest::CardSpecs(args) => card_specs(layout, args).map(VerbResponse::CardSpecs),
         VerbRequest::ChoiceShow(args) => choice_show(layout, args).map(VerbResponse::ChoiceShow),
         VerbRequest::ChoiceList(args) => choice_list(layout, args).map(VerbResponse::ChoiceList),
         VerbRequest::ChoiceSearch(args) => {
@@ -1935,6 +1971,146 @@ fn expand_card_node(
         incoming,
         truncated: false,
     }
+}
+
+fn card_specs(layout: &OrbitLayout, args: &CardSpecsArgs) -> Result<CardSpecsResult> {
+    const VERB: &str = "card.specs";
+    validate_card_slug(VERB, &args.slug)?;
+    let resolved = resolve_numeric_slug(VERB, &layout.cards_dir(), &args.slug)?
+        .unwrap_or_else(|| args.slug.clone());
+    let card_path = layout.card_file(&resolved);
+    if !card_path.exists() {
+        return Err(Error::not_found(
+            VERB,
+            format!("no card at {}", card_path.display()),
+        ));
+    }
+    let card_text = std::fs::read_to_string(&card_path)
+        .map_err(|e| Error::unavailable(VERB, format!("read {}: {e}", card_path.display())))?;
+    let card: Card = parse_yaml(&card_text).map_err(|mut e| {
+        e.verb = VERB.into();
+        e
+    })?;
+
+    // Map of all known specs on disk: id -> (path, cards array, status).
+    // Built once; consulted for forward dereferences and the reverse scan.
+    let spec_files = layout
+        .list_spec_files()
+        .map_err(|e| Error::unavailable(VERB, format!("list specs: {e}")))?;
+    let mut specs_on_disk: BTreeMap<String, (String, Vec<String>, String, bool)> = BTreeMap::new();
+    for path in spec_files {
+        // Per choice 0021 the per-spec folder is `<id>/spec.yaml`. The spec
+        // id is the parent directory name.
+        let spec_id = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| {
+                Error::malformed(
+                    VERB,
+                    format!("spec path has no parent folder name: {}", path.display()),
+                )
+            })?
+            .to_string();
+        let path_str = relativise_spec_path(&path, &layout.root);
+        match std::fs::read_to_string(&path)
+            .map_err(|e| (e, "read".to_string()))
+            .and_then(|t| parse_yaml::<Spec>(&t).map_err(|e| (std::io::Error::other(e.to_string()), "parse".to_string())))
+        {
+            Ok(spec) => {
+                let status = match spec.status {
+                    SpecStatus::Open => "open",
+                    SpecStatus::Closed => "closed",
+                };
+                specs_on_disk.insert(spec_id, (path_str, spec.cards, status.to_string(), true));
+            }
+            Err((_, stage)) => {
+                let status = if stage == "read" { "missing" } else { "parse-failed" };
+                specs_on_disk.insert(spec_id, (path_str, Vec::new(), status.to_string(), false));
+            }
+        }
+    }
+
+    let mut entries: BTreeMap<String, CardSpecsEntry> = BTreeMap::new();
+
+    // Forward direction: every path the card lists in card.specs[].
+    for listed_path in &card.specs {
+        let spec_id = spec_id_from_listed_path(listed_path);
+        let (path_for_entry, back_ref, status) = match specs_on_disk.get(&spec_id) {
+            Some((path, cards, status, parsed)) => {
+                let back = *parsed && cards.iter().any(|c| c == &resolved);
+                (path.clone(), back, status.clone())
+            }
+            None => (listed_path.clone(), false, "missing".to_string()),
+        };
+        entries.insert(
+            spec_id.clone(),
+            CardSpecsEntry {
+                spec_id,
+                spec_path: path_for_entry,
+                listed_on_card: true,
+                back_referenced_by_spec: back_ref,
+                status,
+            },
+        );
+    }
+
+    // Reverse direction: every on-disk spec whose cards[] references this
+    // card but which isn't already in the entries map (or which is, but with
+    // listed_on_card=true already — we only need to upsert the back-ref
+    // flag).
+    for (spec_id, (path, cards, status, parsed)) in &specs_on_disk {
+        if !*parsed {
+            continue;
+        }
+        if cards.iter().any(|c| c == &resolved) {
+            entries
+                .entry(spec_id.clone())
+                .and_modify(|e| {
+                    e.back_referenced_by_spec = true;
+                })
+                .or_insert_with(|| CardSpecsEntry {
+                    spec_id: spec_id.clone(),
+                    spec_path: path.clone(),
+                    listed_on_card: false,
+                    back_referenced_by_spec: true,
+                    status: status.clone(),
+                });
+        }
+    }
+
+    Ok(CardSpecsResult {
+        root: resolved,
+        specs: entries.into_values().collect(),
+    })
+}
+
+/// Render a spec path as a relative `.orbit/specs/<id>/spec.yaml` string for
+/// display alongside the human-written form in `card.specs[]`. Falls back to
+/// the absolute path if it can't be relativised (e.g. the layout root isn't
+/// a prefix — only happens in tests with unusual fixtures).
+fn relativise_spec_path(path: &Path, orbit_root: &Path) -> String {
+    // orbit_root is the `.orbit/` dir; we want output prefixed `.orbit/...`
+    let parent = orbit_root.parent().unwrap_or(orbit_root);
+    if let Ok(rel) = path.strip_prefix(parent) {
+        return rel.to_string_lossy().into_owned();
+    }
+    path.to_string_lossy().into_owned()
+}
+
+/// Extract the spec id from a path string as it appears in `card.specs[]`.
+/// The canonical shape is `.orbit/specs/<id>/spec.yaml` (per choice 0021),
+/// but legacy values may still appear as `.orbit/specs/<id>.yaml`. Both
+/// resolve to `<id>`.
+fn spec_id_from_listed_path(listed: &str) -> String {
+    // Trim trailing `/spec.yaml` if present.
+    let trimmed = listed.trim_end_matches("/spec.yaml");
+    let trimmed = trimmed.trim_end_matches(".yaml");
+    trimmed
+        .rsplit('/')
+        .next()
+        .unwrap_or(trimmed)
+        .to_string()
 }
 
 fn collect_card_summaries(layout: &OrbitLayout, verb: &'static str) -> Result<Vec<CardSummary>> {
