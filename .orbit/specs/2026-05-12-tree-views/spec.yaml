@@ -3,7 +3,7 @@ goal: Ship navigation and synthesis verbs that make the existing orbit substrate
 cards:
 - 0033-see-the-tree
 - 0030-canonical-schema-and-glossary
-status: open
+status: closed
 labels:
 - spec
 acceptance_criteria:

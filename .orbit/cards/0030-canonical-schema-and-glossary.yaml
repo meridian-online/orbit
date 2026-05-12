@@ -49,6 +49,7 @@ scenarios:
 specs:
 - .orbit/specs/2026-05-09-card-vs-choice-discrimination/spec.yaml
 - .orbit/specs/2026-05-10-card-id-field-and-conventions/spec.yaml
+- .orbit/specs/2026-05-12-tree-views/spec.yaml
 relations:
 - card: 0026-executive-communication
   type: feeds
