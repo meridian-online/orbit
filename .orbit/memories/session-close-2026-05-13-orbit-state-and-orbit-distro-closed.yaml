@@ -1,0 +1,23 @@
+key: session-close-2026-05-13-orbit-state-and-orbit-distro-closed
+body: |-
+  Session shipped orbit 0.4.12 (reconcile-mode implementation + release) and closed BOTH outstanding umbrella specs — first session with zero open specs since the orbit-state cutover.
+
+  Reconcile mode: orbit canonicalise --reconcile lives in new reconcile.rs module; permissive read + registry (map/drop/quarantine) + sidecar writer; gated behind --reconcile flag so deny_unknown_fields stays everywhere else. 13 unit tests + 3 inner-FIELDS lockstep tests; 187 total. Spec 2026-05-12-reconcile-mode closed; review-pr APPROVE (3 LOW/INFO, none blocking). Card 0032 maturity planned -> emerging.
+
+  Release: 0.4.11 -> 0.4.12. Parity gate fired (substrate changed + PATH binary stale at 0.4.11); resolved via path (a) — bumped orbit-state/Cargo.toml workspace version + cargo install --path orbit-state/crates/cli so ~/.cargo/bin/orbit at 0.4.12 sits ahead of brew at 0.4.11 on PATH. Then tagged v0.4.12 at the bump commit (d1d339d, not HEAD — convention from v0.4.11 = tag-at-bump). Release workflow propagated the homebrew-tap formula bump end-to-end; brew upgrade meridian-online/tap/orbit landed on mac + linux.
+
+  orbit-distro CLOSED: ac-04 (mac smoke) and ac-10 (mac + linux smoke) ticked with evidence. Bug surfaced: I prematurely closed the spec after ac-04 because I'd read a truncated 4-AC view; the spec has 10 ACs and ac-10 was still unchecked. orbit spec close accepted because it only enforces task-completion, not AC-completion. ac-10 ticked in place post-close. Card 0027-brew-installable planned -> established.
+
+  orbit-state-v0.1 CLOSED (renamed from orbit-xto earlier this session — bd-era random short id removed; the single bd-era exception in an otherwise date-slugged substrate). Three remaining ACs ticked with retrospective notes: ac-18 (>=1 week dogfood) substantively satisfied at 5.5 days of continuous orbit verify clean across 5 releases; ac-19 (v0.1.0 tag) superseded by 0.4.x release cadence; ac-21 (mac cross-compile) superseded by orbit-distro release.yml 4-target matrix.
+
+  Card 0033-see-the-tree also bumped planned -> emerging (tree-views shipped 2026-05-12).
+
+  Substrate state at close: orbit verify clean, 187 tests pass, both PATH binaries at 0.4.12, NO open specs.
+
+  Forward findings:
+  1. spec.close lets unchecked ACs slip through — feature gap. Worth either a guard (pre-flight that asks 'AC X unchecked, force-close?') or at minimum a warning. Premature-close bug above is the worked example.
+  2. Card 0028 i_want drift (memory card-0028-i-want-drift-followup) still outstanding — one-line prose fix.
+  3. Four orphan cards (0013-playbook-fast-path, 0015-research-mode-iteration-loop, 0025-codebase-mastery, 0029-fan-out) have no relations and survived today's overview pass. Triage candidate.
+  4. 22 cards still tagged 'planned' after today's bumps — distill pass would compress this.
+timestamp: 2026-05-13T01:47:14.427545104Z
+labels: []
