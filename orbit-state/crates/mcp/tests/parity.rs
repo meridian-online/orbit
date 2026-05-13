@@ -310,6 +310,78 @@ fn card_specs_mcp_envelope_matches_canonical_envelope() {
     assert_eq!(envelope, expected, "MCP envelope diverged from canonical");
 }
 
+// ---------------------------------------------------------------------------
+// spec.close AC pre-flight (spec 2026-05-13-spec-close-ac-preflight, ac-05)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spec_close_mcp_unchecked_acs_emits_conflict_envelope() {
+    // ac-05 / ac-02: MCP `spec.close` against a spec with one unchecked
+    // non-time-gated AC emits the canonical conflict envelope.
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_spec_close_preflight_fixture(dir.path());
+
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({ "name": "spec.close", "arguments": { "id": "0001" } }),
+    );
+    let result = inner.get("result").expect("has result");
+    assert_eq!(result.get("isError").and_then(Value::as_bool), Some(true));
+
+    let envelope = inner_envelope_text(&inner);
+    assert_eq!(envelope, common::expected_envelope_for_spec_close_unchecked_blocking());
+
+    // State parity: spec is still open, card is unmutated.
+    let spec_text = std::fs::read_to_string(dir.path().join(".orbit/specs/0001/spec.yaml")).unwrap();
+    assert!(spec_text.contains("status: open"), "spec mutated: {spec_text}");
+    let card_text = std::fs::read_to_string(dir.path().join(".orbit/cards/0020-orbit-state.yaml")).unwrap();
+    assert!(!card_text.contains("specs:"), "card specs array touched: {card_text}");
+}
+
+#[test]
+fn spec_close_mcp_force_proceeds_with_envelope() {
+    // ac-05 / ac-03: MCP `spec.close { force: true }` bypasses the
+    // unchecked-AC guard and emits the canonical ok envelope with
+    // `forced_unchecked` and `time_gated_open` populated.
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_spec_close_preflight_fixture(dir.path());
+
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({ "name": "spec.close", "arguments": { "id": "0001", "force": true } }),
+    );
+    let envelope = inner_envelope_text(&inner);
+    assert_eq!(envelope, common::expected_envelope_for_spec_close_force());
+
+    // State parity.
+    let spec_text = std::fs::read_to_string(dir.path().join(".orbit/specs/0001/spec.yaml")).unwrap();
+    assert!(spec_text.contains("status: closed"), "spec not closed: {spec_text}");
+    let card_text = std::fs::read_to_string(dir.path().join(".orbit/cards/0020-orbit-state.yaml")).unwrap();
+    assert!(
+        card_text.contains(".orbit/specs/0001/spec.yaml"),
+        "card not updated: {card_text}"
+    );
+}
+
+#[test]
+fn spec_close_mcp_time_gated_only_proceeds_without_force() {
+    // ac-05 / ac-04: MCP `spec.close` against a spec whose sole unchecked
+    // AC is time-gated succeeds without `force`; envelope carries
+    // `time_gated_open` and empty `forced_unchecked`.
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_spec_close_only_time_gated_fixture(dir.path());
+
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({ "name": "spec.close", "arguments": { "id": "0001" } }),
+    );
+    let envelope = inner_envelope_text(&inner);
+    assert_eq!(envelope, common::expected_envelope_for_spec_close_only_time_gated());
+
+    let spec_text = std::fs::read_to_string(dir.path().join(".orbit/specs/0001/spec.yaml")).unwrap();
+    assert!(spec_text.contains("status: closed"), "spec not closed: {spec_text}");
+}
+
 /// Extract `result.content[0].text` from a JSON-RPC response — that's where
 /// the wire envelope lives in MCP's `tools/call` shape.
 fn inner_envelope_text(response: &Value) -> String {

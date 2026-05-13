@@ -282,3 +282,157 @@ pub fn expected_envelope_for_card_specs_alpha() -> String {
     });
     orbit_state_core::envelope_ok_string(&response).expect("infallible")
 }
+
+// ---------------------------------------------------------------------------
+// spec.close AC pre-flight (spec 2026-05-13-spec-close-ac-preflight, ac-05)
+// ---------------------------------------------------------------------------
+
+/// Populate `<root>/.orbit/` with one card and one open spec carrying ACs:
+/// - `ac-01` checked, non-gate, non-time-gated
+/// - `ac-02` unchecked, non-gate, non-time-gated  ← blocks close
+/// - `ac-03` unchecked, non-gate, time-gated      ← reported, does not block
+pub fn populate_spec_close_preflight_fixture(root: &Path) {
+    let cards_dir = root.join(".orbit/cards");
+    std::fs::create_dir_all(&cards_dir).unwrap();
+    std::fs::write(
+        cards_dir.join("0020-orbit-state.yaml"),
+        "id: 0020-orbit-state\nfeature: orbit-state\ngoal: substrate\nmaturity: planned\n",
+    )
+    .unwrap();
+    let spec_dir = root.join(".orbit/specs/0001");
+    std::fs::create_dir_all(&spec_dir).unwrap();
+    std::fs::write(
+        spec_dir.join("spec.yaml"),
+        "id: '0001'\n\
+         goal: g\n\
+         cards:\n\
+         - 0020-orbit-state\n\
+         status: open\n\
+         acceptance_criteria:\n\
+         - id: ac-01\n  description: first\n  gate: false\n  checked: true\n\
+         - id: ac-02\n  description: second\n  gate: false\n  checked: false\n\
+         - id: ac-03\n  description: third\n  gate: false\n  checked: false\n  time_gated: true\n",
+    )
+    .unwrap();
+}
+
+/// Populate a fixture where only a time-gated AC remains unchecked — used
+/// to verify spec.close succeeds without `--force` when the sole open AC
+/// is `time_gated: true` (ac-04).
+pub fn populate_spec_close_only_time_gated_fixture(root: &Path) {
+    let cards_dir = root.join(".orbit/cards");
+    std::fs::create_dir_all(&cards_dir).unwrap();
+    std::fs::write(
+        cards_dir.join("0020-orbit-state.yaml"),
+        "id: 0020-orbit-state\nfeature: orbit-state\ngoal: substrate\nmaturity: planned\n",
+    )
+    .unwrap();
+    let spec_dir = root.join(".orbit/specs/0001");
+    std::fs::create_dir_all(&spec_dir).unwrap();
+    std::fs::write(
+        spec_dir.join("spec.yaml"),
+        "id: '0001'\n\
+         goal: g\n\
+         cards:\n\
+         - 0020-orbit-state\n\
+         status: open\n\
+         acceptance_criteria:\n\
+         - id: ac-01\n  description: first\n  gate: false\n  checked: true\n\
+         - id: ac-02\n  description: second\n  gate: false\n  checked: false\n  time_gated: true\n",
+    )
+    .unwrap();
+}
+
+/// Expected error envelope when `spec close 0001` runs against the
+/// pre-flight fixture (ac-02 is unchecked, non-time-gated).
+pub fn expected_envelope_for_spec_close_unchecked_blocking() -> String {
+    use orbit_state_core::{envelope_err_string, Error};
+    let err = Error::conflict("spec.close", "1 unchecked AC(s) in spec '0001': ac-02");
+    envelope_err_string(&err)
+}
+
+/// Expected ok envelope when `spec close --force 0001` runs against the
+/// pre-flight fixture. The closed spec includes the new fields:
+/// `forced_unchecked: [ac-02]`, `time_gated_open: [ac-03]`.
+pub fn expected_envelope_for_spec_close_force() -> String {
+    use orbit_state_core::schema::{AcceptanceCriterion, Spec, SpecStatus};
+    use orbit_state_core::{envelope_ok_string, SpecCloseResult, VerbResponse};
+    let response = VerbResponse::SpecClose(SpecCloseResult {
+        spec: Spec {
+            id: "0001".into(),
+            goal: "g".into(),
+            cards: vec!["0020-orbit-state".into()],
+            status: SpecStatus::Closed,
+            labels: vec![],
+            acceptance_criteria: vec![
+                AcceptanceCriterion {
+                    id: "ac-01".into(),
+                    description: "first".into(),
+                    gate: false,
+                    checked: true,
+                    verification: None,
+                    time_gated: false,
+                },
+                AcceptanceCriterion {
+                    id: "ac-02".into(),
+                    description: "second".into(),
+                    gate: false,
+                    checked: false,
+                    verification: None,
+                    time_gated: false,
+                },
+                AcceptanceCriterion {
+                    id: "ac-03".into(),
+                    description: "third".into(),
+                    gate: false,
+                    checked: false,
+                    verification: None,
+                    time_gated: true,
+                },
+            ],
+        },
+        cards_updated: vec!["0020-orbit-state".into()],
+        forced_unchecked: vec!["ac-02".into()],
+        time_gated_open: vec!["ac-03".into()],
+    });
+    envelope_ok_string(&response).expect("infallible")
+}
+
+/// Expected ok envelope when `spec close 0001` runs against the
+/// only-time-gated fixture. Closure succeeds without `--force`;
+/// `time_gated_open: [ac-02]`, `forced_unchecked` empty.
+pub fn expected_envelope_for_spec_close_only_time_gated() -> String {
+    use orbit_state_core::schema::{AcceptanceCriterion, Spec, SpecStatus};
+    use orbit_state_core::{envelope_ok_string, SpecCloseResult, VerbResponse};
+    let response = VerbResponse::SpecClose(SpecCloseResult {
+        spec: Spec {
+            id: "0001".into(),
+            goal: "g".into(),
+            cards: vec!["0020-orbit-state".into()],
+            status: SpecStatus::Closed,
+            labels: vec![],
+            acceptance_criteria: vec![
+                AcceptanceCriterion {
+                    id: "ac-01".into(),
+                    description: "first".into(),
+                    gate: false,
+                    checked: true,
+                    verification: None,
+                    time_gated: false,
+                },
+                AcceptanceCriterion {
+                    id: "ac-02".into(),
+                    description: "second".into(),
+                    gate: false,
+                    checked: false,
+                    verification: None,
+                    time_gated: true,
+                },
+            ],
+        },
+        cards_updated: vec!["0020-orbit-state".into()],
+        forced_unchecked: vec![],
+        time_gated_open: vec!["ac-02".into()],
+    });
+    envelope_ok_string(&response).expect("infallible")
+}

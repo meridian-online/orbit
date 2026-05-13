@@ -638,6 +638,92 @@ fn card_specs_cli_json_matches_canonical_envelope() {
     assert_eq!(actual, expected, "CLI envelope diverged from canonical");
 }
 
+// ---------------------------------------------------------------------------
+// spec.close AC pre-flight (spec 2026-05-13-spec-close-ac-preflight, ac-05)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spec_close_cli_unchecked_acs_emits_conflict_envelope() {
+    // ac-05 / ac-02: CLI `spec close` against a spec with one unchecked
+    // non-time-gated AC emits the canonical conflict envelope; no
+    // state mutation occurs.
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_spec_close_preflight_fixture(dir.path());
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args(["--root", dir.path().to_str().unwrap(), "--json", "spec", "close", "0001"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(!output.status.success(), "expected non-zero exit on conflict");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let actual = stdout.trim_end_matches('\n');
+    assert_eq!(actual, common::expected_envelope_for_spec_close_unchecked_blocking());
+
+    // State parity: spec is still open, card is unmutated.
+    let spec_text = std::fs::read_to_string(dir.path().join(".orbit/specs/0001/spec.yaml")).unwrap();
+    assert!(spec_text.contains("status: open"), "spec mutated: {spec_text}");
+    let card_text = std::fs::read_to_string(dir.path().join(".orbit/cards/0020-orbit-state.yaml")).unwrap();
+    assert!(!card_text.contains("specs:"), "card specs array touched: {card_text}");
+}
+
+#[test]
+fn spec_close_cli_force_proceeds_with_envelope() {
+    // ac-05 / ac-03: CLI `spec close --force` bypasses the unchecked-AC
+    // guard and emits the canonical ok envelope with `forced_unchecked`
+    // and `time_gated_open` populated.
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_spec_close_preflight_fixture(dir.path());
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args(["--root", dir.path().to_str().unwrap(), "--json", "spec", "close", "0001", "--force"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success(), "force should succeed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let actual = stdout.trim_end_matches('\n');
+    assert_eq!(actual, common::expected_envelope_for_spec_close_force());
+
+    // State parity: spec is closed on disk, card's specs array gained the ref.
+    let spec_text = std::fs::read_to_string(dir.path().join(".orbit/specs/0001/spec.yaml")).unwrap();
+    assert!(spec_text.contains("status: closed"), "spec not closed: {spec_text}");
+    let card_text = std::fs::read_to_string(dir.path().join(".orbit/cards/0020-orbit-state.yaml")).unwrap();
+    assert!(
+        card_text.contains(".orbit/specs/0001/spec.yaml"),
+        "card not updated: {card_text}"
+    );
+}
+
+#[test]
+fn spec_close_cli_time_gated_only_proceeds_without_force() {
+    // ac-05 / ac-04: CLI `spec close` against a spec whose sole unchecked
+    // AC is time-gated succeeds without `--force`; envelope carries
+    // `time_gated_open` and empty `forced_unchecked`.
+    let dir = tempfile::tempdir().unwrap();
+    common::populate_spec_close_only_time_gated_fixture(dir.path());
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args(["--root", dir.path().to_str().unwrap(), "--json", "spec", "close", "0001"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success(), "close should succeed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let actual = stdout.trim_end_matches('\n');
+    assert_eq!(actual, common::expected_envelope_for_spec_close_only_time_gated());
+
+    // State parity: spec is closed.
+    let spec_text = std::fs::read_to_string(dir.path().join(".orbit/specs/0001/spec.yaml")).unwrap();
+    assert!(spec_text.contains("status: closed"), "spec not closed: {spec_text}");
+}
+
 // Helper visible to ensure the test binary depends on the CLI binary.
 #[allow(dead_code)]
 fn _binary_dep_anchor(_p: &Path) {}

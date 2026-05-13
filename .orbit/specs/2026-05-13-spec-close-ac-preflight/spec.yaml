@@ -29,7 +29,7 @@ acceptance_criteria:
 - id: ac-05
   description: 'CLI and MCP surfaces honour the new behaviour identically. The `--force` flag exists on both. Parity tests cover the three new branches: unchecked-AC rejection (ac-02), force-proceeds (ac-03), and time-gated allowance (ac-04). State mutations (canonical files + state.db) are byte-identical between surfaces; error structure is identical (category `conflict`, sentence-form message).'
   gate: true
-  checked: false
+  checked: true
   verification: Three new parity cases added to the existing parity test suites at `orbit-state/crates/cli/tests/parity.rs` and `orbit-state/crates/mcp/tests/parity.rs`. Each case runs the same operation through both surfaces and asserts (a) identical canonical files on disk, (b) identical state.db rows, (c) equivalent error structure where applicable.
 - id: ac-06
   description: The existing unfinished-tasks guard at `verbs.rs:1147` is unchanged in behaviour. The existing `spec_close_rejects_unfinished_tasks` test continues to pass without modifying its assertions (test fixtures may need updated ACs but the behaviour assertion is untouched). A code comment in `spec_close` names the ordering choice between the two guards and the rationale (e.g. "tasks first because they're append-only and faster to read" or the reverse — whichever is chosen).
