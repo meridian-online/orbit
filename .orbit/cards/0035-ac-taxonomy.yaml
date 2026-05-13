@@ -1,0 +1,61 @@
+id: 0035-ac-taxonomy
+feature: Typed acceptance criteria — ACs declare a kind that signals close semantics, verification path, and review expectations
+as_a: orbit author / contributor / driving agent
+i_want: '`AcceptanceCriterion` to carry a type field that distinguishes ACs which block close on unchecked state (code, configuration, schema) from ACs which legitimately remain unchecked at close (operational sign-off, post-deploy observation, manual research output) — and for downstream verbs and skills to honour the type rather than treat every AC identically'
+so_that: ACs that wait on the world don't get the same close-time treatment as ACs that need a unit test, and the verification path for each AC is legible from the spec itself rather than reconstructed by the reading agent
+goal: '`AcceptanceCriterion` carries a type (working name `ac_type`, exact field name and enum values to be settled at /orb:design); `spec.close` honours type when computing the unchecked-blocking set (generalising card 0034''s `time_gated: bool`); `/orb:review-pr` expects type-appropriate evidence; `/orb:drive` selects verification strategy from type; brownfield specs with comparable taxonomies (see card 0032) absorb cleanly without lossy mapping'
+maturity: planned
+scenarios:
+- name: ACs declare their kind at authoring time
+  given: a spec being written or migrated
+  when: an AC is declared
+  then: the AC carries a type indicating what kind of evidence closes it (e.g. test artefact, operator sign-off, observation window, document, configuration change) — the default preserves current behaviour for specs that omit it
+  gate: true
+- name: Close semantics vary by type
+  given: a spec at the close boundary
+  when: '`orbit spec close` runs'
+  then: 'ACs of types that close on code or configuration evidence block closure when unchecked (card 0034); ACs of types that close on operator action or post-deploy observation are listed separately as deliberate-deferral candidates and do not block — superseding card 0034''s `time_gated: bool` with a richer categorical signal'
+  gate: true
+- name: Review-pr expects type-appropriate evidence
+  given: a spec under PR review
+  when: '`/orb:review-pr` walks each AC'
+  then: the expected evidence for closure matches the type — a code AC expects a passing test or referenced commit; an ops AC expects operator confirmation and a log line; an observation AC expects a dated window and a metric reference — so review-pr stops asking for unit tests on ACs that never had them
+  gate: false
+- name: Drive selects verification strategy from type
+  given: a drive consuming a spec
+  when: the drive plans its work
+  then: the drive routes each AC into the matching workflow — code ACs into the implement-and-test loop, ops ACs into the operator-handoff escalation path, observation ACs into a deferred-checkpoint registry that does not block close — rather than treating every AC as code-shaped
+  gate: false
+- name: Brownfield AC taxonomies are absorbed by canonicalise --reconcile
+  given: a brownfield spec carrying a project-local AC taxonomy
+  when: '`orbit canonicalise --reconcile` runs (per card 0032)'
+  then: the legacy type values are mapped onto the canonical enum where the semantics align and quarantined where they don't — the migration is not lossy and the canonical taxonomy strengthens rather than collides with existing project conventions
+  gate: false
+- name: Wired into the framework
+  given: this card declares typed ACs as a first-class capability
+  when: enforcement is examined
+  then: '`AcceptanceCriterion::FIELDS` includes the type field, the canonical schema (card 0030) names the enum and its semantics, `spec.close` honours the enum, `/orb:review-pr` and `/orb:drive` read the enum, and `/orb:design` prompts authors for type as ACs are being shaped — without these wires the field ships but downstream verbs ignore it'
+  gate: true
+specs: []
+relations:
+- card: 0034-spec-close-ac-preflight
+  type: feeds
+  reason: 'card 0034 ships `time_gated: bool` as the narrow first slice; this card generalises that bool to a categorical and supersedes 0034''s field if/when the broader taxonomy lands — 0034 is the foundation, 0035 is the generalisation'
+- card: 0030-canonical-schema-and-glossary
+  type: feeds
+  reason: the canonical schema is the home for the enum and its semantics — this card extends what 0030 documents rather than working around it; without the canonical document the taxonomy fragments across reading agents
+- card: 0032-brownfield-spec-migration
+  type: feeds
+  reason: brownfield projects with existing AC taxonomies need their values absorbed cleanly when migrating; 0032's reconcile path is the on-ramp, and this card supplies the canonical target the on-ramp aims at — without 0035 the on-ramp has nowhere to land richer AC semantics
+- card: 0020-orbit-state
+  type: feeds
+  reason: serves pillar 3 (state-persistence) — the substrate becomes load-bearing for richer AC semantics that today live in agent inference; making the taxonomy canonical means the substrate carries the signal, not the reading agent
+- card: 0026-executive-communication
+  type: feeds
+  reason: serves pillar 1 (executive interaction) — the author writes the type once at AC declaration; close, review, and drive all honour it automatically; the author is not asked the same intent question multiple times across multiple skills
+references:
+- '.orbit/cards/0034-spec-close-ac-preflight.yaml: the narrow first slice (`time_gated: bool`) this card generalises'
+- '.orbit/cards/0032-brownfield-spec-migration.yaml: the migration on-ramp brownfield AC taxonomies travel through to reach the canonical enum'
+- 'orbit-state/crates/core/src/schema.rs:138 (AcceptanceCriterion): current shape — `id, description, gate, checked, verification`; the type field is the proposed addition'
+notes:
+- 'triggered 2026-05-13 during /orb:design on card 0034: while pricing the time-gated-AC question, a brownfield project''s spec corpus surfaced as evidence — its ACs already carry a richer taxonomy distinguishing code / operational / post-deploy-observation / research kinds. Card 0034 stayed narrow (a single `time_gated: bool`); this card captures the broader observation that the taxonomy belongs in the canonical schema, deferred until the brownfield migration path (0032) and the canonical-schema work (0030) are ready to receive it.'
