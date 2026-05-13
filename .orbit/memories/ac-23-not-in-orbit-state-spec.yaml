@@ -1,5 +1,5 @@
 key: ac-23-not-in-orbit-state-spec
-body: 'Note for next session: ac-23 (card conformance to v0.1 strict Card schema) was added to the bd-issue acceptance after Migration B ran. The migrated .orbit/specs/orbit-xto.yaml has only ac-01..ac-22 (22 ACs). The work is done (26 cards conformed in commit 91aab6a, verified clean by orbit verify on every commit since). To add ac-23 to the orbit-state spec, either edit the yaml directly (must match canonical writer output for round-trip), or extend the CLI with an --add-ac flag. Low priority — actual gate is satisfied; the spec yaml just doesn''t enumerate it.'
+body: 'Note for next session: ac-23 (card conformance to v0.1 strict Card schema) was added to the bd-issue acceptance after Migration B ran. The migrated .orbit/specs/2026-05-07-orbit-state-v0.1/spec.yaml has only ac-01..ac-22 (22 ACs). The work is done (26 cards conformed in commit 91aab6a, verified clean by orbit verify on every commit since). To add ac-23 to the orbit-state spec, either edit the yaml directly (must match canonical writer output for round-trip), or extend the CLI with an --add-ac flag. Low priority — actual gate is satisfied; the spec yaml just doesn''t enumerate it.'
 timestamp: 2026-05-07T11:04:45.692012024Z
 labels:
 - sync-debt
