@@ -44,7 +44,7 @@ acceptance_criteria:
 - id: ac-08
   description: '`/orb:drive`''s close step surfaces the unchecked-AC error to the author before invoking close, naming the offending AC ids. If the author elects to proceed despite the gap, the drive invokes `orbit spec close --force` and captures a sentence-form rationale in the drive''s notes (or commit message) — so the substrate guard is honoured at the agent layer too. The wire is documentary in the skill prompt; enforcement happens at the substrate via ac-02 and ac-03.'
   gate: false
-  checked: false
+  checked: true
   verification: '`plugins/orb/skills/drive/SKILL.md` gains a close-step section that names: the AC pre-flight (`spec.close` will block if any non-time-gated AC is unchecked), the `--force` escape and when to use it, and the rationale-capture expectation. Manual review of the SKILL.md edit confirms the three points are present. A keyword grep for "time_gated" and "--force" in the skill returns hits.'
 - id: ac-09
   description: 'Brew-released binary at the new version installs cleanly and the new behaviour is exercisable end-to-end. A spec with a deliberately-unchecked AC blocks close at the released binary; passing `--force` proceeds; an AC marked `time_gated: true` is excluded from the block. Release follows the existing `/orb:release` flow (bump Cargo.toml version, tag, brew tap update). This AC dogfoods the feature on its own delivery: once ac-01 has shipped (the `time_gated` field exists in the canonical schema), this AC is re-declared `time_gated: true` in spec.yaml as a deliberate one-line edit, so the spec can close cleanly with ac-09 still unchecked rather than requiring `--force` for its own release-window close.'

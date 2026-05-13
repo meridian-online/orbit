@@ -464,6 +464,34 @@ On APPROVE at review-pr (interactive gates per autonomy mode passed):
    card's `specs` array. It rejects if any open child tasks remain;
    resolve those first.
 
+   ### AC pre-flight before close
+
+   `spec.close` also rejects when any non-time-gated AC remains
+   `checked: false` (spec 2026-05-13-spec-close-ac-preflight). The error
+   names the offending AC ids and flags gate ACs separately, e.g.
+   `"3 unchecked AC(s) in spec '<id>': ac-04, ac-07, ac-15 (gate: ac-04)"`.
+
+   - **Reconcile first.** If `spec.close` reports unchecked ACs, the
+     default move is to go back, tick the missing AC(s) (`orbit-acceptance.sh
+     check <spec-id> <ac-id>`), and re-invoke `spec close`. Forgot-to-tick
+     is the most common cause and reconciliation is the right answer.
+   - **`--force` is the deliberate escape.** When ACs are genuinely
+     unfinished and the drive is closing anyway (review NO-GO, scoped
+     deferral, mid-pipeline halt), invoke `orbit spec close --force
+     <spec-id>`. The bypassed ids surface in the response's
+     `forced_unchecked` field; capture a sentence-form rationale in
+     the close note so the audit trail is in the substrate, not only
+     in shell history:
+     ```bash
+     orbit spec note <spec-id> "force-close: ac-04, ac-07 unfinished — <reason>"
+     orbit spec close --force <spec-id>
+     ```
+   - **Time-gated ACs never block close.** ACs declared `time_gated: true`
+     in the spec (post-deploy observation windows, operator sign-off
+     awaiting calendar) are excluded from the unchecked-blocking set
+     automatically. They surface in the response's `time_gated_open`
+     field as a deliberate-deferral record but require no flag.
+
 5. **Heartbeat cleanup (full autonomy only).** Attempt `CronDelete
    drive-checkin-<spec-id>`. **Failure is non-fatal** — log
    `heartbeat cleanup skipped: <reason>` and continue. The spec is
