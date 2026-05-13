@@ -2,6 +2,25 @@
 
 All notable changes to orbit are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.12] - 2026-05-13
+
+Reconcile mode shipped — `orbit canonicalise --reconcile` is the on-ramp from legacy yaml field shapes to the canonical schema. A permissive read lives in a new `reconcile.rs` module gated behind the flag; every schema struct keeps `deny_unknown_fields`, so routine paths (`orbit verify`, `orbit canonicalise` without `--reconcile`, every other verb) stay strict. Closes spec `2026-05-12-reconcile-mode` (card 0032).
+
+The change is forward-compatible for routine work — only invoking `--reconcile` itself requires the 0.4.12 binary. `/orb:setup`'s brownfield path is the only routine consumer (via the new §3g step, gated on `orbit audit drift` reporting drift).
+
+### Added
+
+- `orbit canonicalise --reconcile` — permissive pass that walks the substrate, applies dispositions from a built-in registry (`map` renames a field, `drop` removes it), and quarantines unknown content into a sibling `<name>.legacy.yaml` sidecar so semantic content is never silently destroyed. Combined with `--dry-run` it lists every disposition and exits non-zero when the tree is not clean — useful as a CI gate.
+- `dispositions: [{path, kind, field, action}]` array on the canonicalise JSON envelope (only present in reconcile mode). Each entry names the file, entity kind, structural field path (e.g. `acceptance_criteria[2].ac_type`), and action (`map` / `drop` / `quarantine`).
+- `AcceptanceCriterion::FIELDS`, `Scenario::FIELDS`, `Relation::FIELDS` — inner-shape field-name constants. Reconcile uses them to classify legacy fields inside lists-of-struct; lockstep unit tests keep each constant in sync with its struct.
+- `/orb:setup` brownfield path gains §3g — after the layout migration completes, it runs `orbit audit drift` and offers `orbit canonicalise --reconcile --dry-run` → confirm → apply when drift is non-empty. Greenfield setup, `orbit verify`, and pre-commit hooks never invoke reconcile.
+- Choice `0023-reconcile-as-canonicalise-mode` — MADR record of the surface decision (mode on `canonicalise` vs a separate verb).
+
+### Changed
+
+- Card 0030 (canonical-schema-and-glossary) names `orbit canonicalise --reconcile` as the on-ramp from legacy field shapes.
+- Card 0032 (brownfield-spec-migration) reworded against the new mode; `specs[]` references this spec.
+
 ## [0.4.11] - 2026-05-12
 
 Tree-views shipped — five new read-only navigation and synthesis verbs make the substrate's shape legible from the CLI and MCP without opening a single YAML file. Closes spec `2026-05-12-tree-views` (cards 0033, 0020). Surfacing wires land alongside the verbs so agents discover them at the right pipeline moments.
