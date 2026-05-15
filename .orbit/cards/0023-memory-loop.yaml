@@ -41,7 +41,8 @@ scenarios:
   when: the candidate is time-bound, in-the-codebase, or user-level not project-level
   then: it is rejected — memory is for project-scoped facts that survive past the current week and are not codified elsewhere
   gate: false
-specs: []
+specs:
+- .orbit/specs/2026-05-15-agent-learning-loop/spec.yaml
 relations:
 - card: 0020-orbit-state
   type: depends-on

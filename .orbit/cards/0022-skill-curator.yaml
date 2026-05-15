@@ -41,7 +41,8 @@ scenarios:
   when: the agent recognises that reconstruction cost exceeds authoring cost
   then: it opens a skill-author spec citing the memory as recurrence evidence; the memory may stay (as historical context) or be archived after the skill ships
   gate: false
-specs: []
+specs:
+- .orbit/specs/2026-05-15-agent-learning-loop/spec.yaml
 relations:
 - card: 0023-memory-loop
   type: feeds

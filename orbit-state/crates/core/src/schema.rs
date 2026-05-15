@@ -10,15 +10,19 @@
 //! file silently breaks every migration, so it gets the same strict treatment.
 //!
 //! Layout on disk:
-//! - `.orbit/schema-version`           — single-line entity, opaque to git
-//! - `.orbit/specs/<id>.yaml`          — Spec (substrate-written)
-//! - `.orbit/cards/<slug>.yaml`        — Card (human-written; CI validated)
-//! - `.orbit/choices/<slug>.yaml`      — Choice (human-written; CI validated)
-//! - `.orbit/memories/<slug>.yaml`     — Memory (substrate-written)
-//! - `.orbit/specs/<id>.tasks.jsonl`   — Task event stream (append-only)
+//! - `.orbit/schema-version`                       — single-line entity, opaque to git
+//! - `.orbit/specs/<id>.yaml`                      — Spec (substrate-written)
+//! - `.orbit/cards/<slug>.yaml`                    — Card (human-written; CI validated)
+//! - `.orbit/choices/<slug>.yaml`                  — Choice (human-written; CI validated)
+//! - `.orbit/memories/<slug>.yaml`                 — Memory (substrate-written)
+//! - `.orbit/sessions/<session-id>.yaml`           — Session (substrate-written)
+//! - `.orbit/specs/<id>.tasks.jsonl`               — Task event stream (append-only)
+//! - `.orbit/specs/<id>.notes.jsonl`               — Note event stream (append-only)
+//! - `.orbit/skills/<skill_id>.invocations.jsonl`  — Skill invocation stream (append-only)
 //!
-//! Tasks are intentionally append-only JSONL — they are not round-trippable as
-//! a unit and are excluded from the CI round-trip gate per ac-16.
+//! Tasks, notes, and skill invocations are intentionally append-only JSONL —
+//! they are not round-trippable as a unit and are excluded from the CI
+//! round-trip gate per ac-16.
 
 use serde::{Deserialize, Serialize};
 
@@ -90,6 +94,11 @@ impl Choice {
 
 impl Memory {
     pub const FIELDS: &'static [&'static str] = &["key", "body", "timestamp", "labels"];
+}
+
+impl SkillInvocation {
+    pub const FIELDS: &'static [&'static str] =
+        &["skill_id", "session_id", "outcome", "correction", "timestamp"];
 }
 
 impl AcceptanceCriterion {
@@ -186,6 +195,52 @@ pub enum TaskEventKind {
     Claim,
     Update,
     Done,
+}
+
+// ============================================================================
+// Spec note (append-only event)
+// ============================================================================
+
+// ============================================================================
+// Skill invocation (append-only event)
+// ============================================================================
+
+/// One row in a skill's append-only invocation log. Recurrence detection
+/// (per spec 2026-05-15-agent-learning-loop ac-04) reduces the file by
+/// counting rows per [`InvocationOutcome`].
+///
+/// Layout: `.orbit/skills/<skill_id>.invocations.jsonl`. Excluded from
+/// the CI round-trip gate for the same reason tasks and notes are:
+/// append-only streams aren't round-trippable as a unit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SkillInvocation {
+    /// Skill slug — matches the directory name under `plugins/orb/skills/`.
+    pub skill_id: String,
+    /// Session this invocation belongs to (sourced via `read_session_id`).
+    pub session_id: String,
+    /// What happened when the agent invoked the skill.
+    pub outcome: InvocationOutcome,
+    /// Free-text record of what went wrong (or what was corrected). Drives
+    /// the SKILL.md edit decision once the recurrence threshold is met —
+    /// the count tells the agent *whether*, the corrections tell it *what*.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correction: Option<String>,
+    /// ISO-8601 / RFC 3339 timestamp written by the substrate at append time.
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InvocationOutcome {
+    /// Skill ran end-to-end and produced the intended result.
+    Worked,
+    /// Skill ran but the result needed correction.
+    Partial,
+    /// Skill was invoked in a context the SKILL.md does not cover.
+    DidntApply,
+    /// Skill produced a wrong result.
+    Incorrect,
 }
 
 // ============================================================================
@@ -509,6 +564,87 @@ unknown_field: oops
         let mut expected: Vec<String> = Memory::FIELDS.iter().map(|s| s.to_string()).collect();
         expected.sort();
         assert_eq!(got, expected, "Memory::FIELDS drifted from struct");
+    }
+
+    #[test]
+    fn skill_invocation_fields_matches_struct() {
+        // spec 2026-05-15-agent-learning-loop ac-01: SkillInvocation::FIELDS
+        // must equal the struct's serde top-level field set. Fully-populated
+        // fixture so skip_serializing_if doesn't drop fields.
+        let inv = SkillInvocation {
+            skill_id: "card".into(),
+            session_id: "5f6b1a7e-7a32-4f6e-9d31-1a2b3c4d5e6f".into(),
+            outcome: InvocationOutcome::Worked,
+            correction: Some("nudged the wording".into()),
+            timestamp: "2026-05-15T12:00:00Z".into(),
+        };
+        let value = serde_yaml::to_value(&inv).unwrap();
+        let got = top_level_keys(&value);
+        let mut expected: Vec<String> =
+            SkillInvocation::FIELDS.iter().map(|s| s.to_string()).collect();
+        expected.sort();
+        assert_eq!(got, expected, "SkillInvocation::FIELDS drifted from struct");
+    }
+
+    #[test]
+    fn skill_invocation_rejects_unknown_field() {
+        // spec 2026-05-15-agent-learning-loop ac-01: parser MUST reject
+        // unknown fields rather than silently dropping them.
+        let yaml = r#"
+skill_id: card
+session_id: 5f6b1a7e-7a32-4f6e-9d31-1a2b3c4d5e6f
+outcome: worked
+timestamp: 2026-05-15T12:00:00Z
+unknown_field: oops
+"#;
+        let err = serde_yaml::from_str::<SkillInvocation>(yaml).unwrap_err();
+        assert!(err.to_string().contains("unknown"));
+    }
+
+    #[test]
+    fn invocation_outcome_kebab_case_round_trip() {
+        // spec 2026-05-15-agent-learning-loop ac-01: kebab-case rename_all
+        // must apply to every variant — `didnt-apply` is the only one whose
+        // serialised form differs from snake_case, so test it explicitly.
+        let parsed: InvocationOutcome = serde_yaml::from_str("didnt-apply").unwrap();
+        assert_eq!(parsed, InvocationOutcome::DidntApply);
+        let serialised = serde_yaml::to_string(&parsed).unwrap();
+        assert!(
+            serialised.trim() == "didnt-apply",
+            "expected `didnt-apply`, got `{}`",
+            serialised.trim()
+        );
+        // Sanity-check the other variants round-trip.
+        for (variant, expected) in [
+            (InvocationOutcome::Worked, "worked"),
+            (InvocationOutcome::Partial, "partial"),
+            (InvocationOutcome::DidntApply, "didnt-apply"),
+            (InvocationOutcome::Incorrect, "incorrect"),
+        ] {
+            let s = serde_yaml::to_string(&variant).unwrap();
+            assert_eq!(s.trim(), expected, "variant {variant:?} did not round-trip");
+            let back: InvocationOutcome = serde_yaml::from_str(expected).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn skill_invocation_omits_null_correction_on_serialize() {
+        // spec 2026-05-15-agent-learning-loop ac-03 / ac-04: a row with no
+        // correction must serialise without a `correction:` key at all so
+        // the on-disk JSONL line matches the round-trip discipline.
+        let inv = SkillInvocation {
+            skill_id: "card".into(),
+            session_id: "5f6b1a7e-7a32-4f6e-9d31-1a2b3c4d5e6f".into(),
+            outcome: InvocationOutcome::Worked,
+            correction: None,
+            timestamp: "2026-05-15T12:00:00Z".into(),
+        };
+        let serialised = serde_yaml::to_string(&inv).unwrap();
+        assert!(
+            !serialised.contains("correction"),
+            "expected no `correction` key when None; got: {serialised}"
+        );
     }
 
     #[test]
