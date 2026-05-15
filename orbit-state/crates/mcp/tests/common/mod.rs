@@ -436,3 +436,74 @@ pub fn expected_envelope_for_spec_close_only_time_gated() -> String {
     });
     envelope_ok_string(&response).expect("infallible")
 }
+
+/// Fixed UUID for deterministic `session.start` parity tests.
+pub const PARITY_SESSION_ID: &str = "00000000-0000-4000-8000-000000000001";
+
+/// Fixed timestamp for deterministic skill-invocation parity tests.
+pub const PARITY_TIMESTAMP: &str = "2026-05-15T12:00:00Z";
+
+/// Expected ok envelope for `session start --id <PARITY_SESSION_ID>`
+/// against the given root.
+pub fn expected_envelope_for_session_start(root: &Path) -> String {
+    use orbit_state_core::{envelope_ok_string, SessionStartResult, VerbResponse};
+    let path = root.join(".orbit").join(".session-id");
+    let response = VerbResponse::SessionStart(SessionStartResult {
+        session_id: PARITY_SESSION_ID.into(),
+        path: path.display().to_string(),
+    });
+    envelope_ok_string(&response).expect("infallible")
+}
+
+/// Expected ok envelope for `skill record-invocation card --outcome worked
+/// --session-id <PARITY_SESSION_ID> --timestamp <PARITY_TIMESTAMP>`.
+pub fn expected_envelope_for_skill_record_invocation() -> String {
+    use orbit_state_core::schema::{InvocationOutcome, SkillInvocation};
+    use orbit_state_core::{envelope_ok_string, SkillRecordInvocationResult, VerbResponse};
+    let response = VerbResponse::SkillRecordInvocation(SkillRecordInvocationResult {
+        invocation: SkillInvocation {
+            skill_id: "card".into(),
+            session_id: PARITY_SESSION_ID.into(),
+            outcome: InvocationOutcome::Worked,
+            correction: None,
+            timestamp: PARITY_TIMESTAMP.into(),
+        },
+    });
+    envelope_ok_string(&response).expect("infallible")
+}
+
+/// Expected ok envelope for `skill recurrence design` against an empty
+/// (or absent) invocation file.
+pub fn expected_envelope_for_skill_recurrence_empty() -> String {
+    use orbit_state_core::{
+        envelope_ok_string, RecurrenceByOutcome, SkillRecurrenceResult, VerbResponse,
+    };
+    let response = VerbResponse::SkillRecurrence(SkillRecurrenceResult {
+        skill_id: "design".into(),
+        by_outcome: RecurrenceByOutcome::default(),
+        total: 0,
+    });
+    envelope_ok_string(&response).expect("infallible")
+}
+
+/// Expected ok envelope for `session distill --session-id <PARITY_SESSION_ID>`
+/// with the given distillate text. Caller must read `started_at` / `ended_at`
+/// from disk after the call before computing this.
+pub fn expected_envelope_for_session_distill(
+    distillate: &str,
+    started_at: &str,
+    ended_at: &str,
+) -> String {
+    use orbit_state_core::schema::Session;
+    use orbit_state_core::{envelope_ok_string, SessionDistillResult, VerbResponse};
+    let response = VerbResponse::SessionDistill(SessionDistillResult {
+        session: Session {
+            id: PARITY_SESSION_ID.into(),
+            started_at: started_at.into(),
+            ended_at: Some(ended_at.into()),
+            distillate: distillate.into(),
+            labels: vec![],
+        },
+    });
+    envelope_ok_string(&response).expect("infallible")
+}

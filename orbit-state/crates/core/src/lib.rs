@@ -19,6 +19,7 @@ pub mod migrate;
 pub mod migrations;
 pub mod reconcile;
 pub mod schema;
+pub mod session;
 pub mod sqlite_link;
 pub mod verbs;
 pub mod verify;
@@ -37,7 +38,10 @@ pub use verbs::{
     GraphArgs, GraphFormat, GraphResult, MostConnectedCard, OverviewArgs, OverviewResult,
     ChoiceListResult, ChoiceSearchArgs, ChoiceShowArgs, ChoiceShowResult, ChoiceSummary,
     MemoryListArgs, MemoryListResult, MemoryRememberArgs, MemoryRememberResult, MemorySearchArgs,
-    SessionPrimeArgs, SessionPrimeResult, SpecCloseArgs, SpecCloseResult, SpecCreateArgs,
+    RecurrenceBucket, RecurrenceByOutcome, RecurrenceInvocation, SessionDistillArgs,
+    SessionDistillResult, SessionPrimeArgs, SessionPrimeResult, SessionStartArgs,
+    SessionStartResult, SkillRecordInvocationArgs, SkillRecordInvocationResult,
+    SkillRecurrenceArgs, SkillRecurrenceResult, SpecCloseArgs, SpecCloseResult, SpecCreateArgs,
     SpecCreateResult, SpecListArgs, SpecListResult, SpecNoteArgs, SpecNoteResult, SpecShowArgs,
     SpecShowResult, SpecSummary, SpecUpdateArgs, SpecUpdateResult, TaskClaimArgs, TaskDoneArgs,
     TaskEventResult, TaskListArgs, TaskListResult, TaskOpenArgs, TaskOpenResult, TaskReadyArgs,

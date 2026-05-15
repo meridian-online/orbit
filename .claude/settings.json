@@ -4,7 +4,7 @@
       {
         "hooks": [
           {
-            "command": "bd prime",
+            "command": "orbit session prime",
             "type": "command"
           }
         ],
@@ -15,7 +15,22 @@
       {
         "hooks": [
           {
-            "command": "bd prime",
+            "command": "orbit session start",
+            "type": "command"
+          },
+          {
+            "command": "orbit session prime",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "orbit session distill && rm -f .orbit/.session-id",
             "type": "command"
           }
         ],

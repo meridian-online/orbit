@@ -28,12 +28,14 @@ use orbit_state_core::{
     CardSpecsArgs, CardSpecsResult, CardTreeArgs, CardTreeEdge, CardTreeResult, ChoiceListArgs,
     ChoiceListResult, GraphArgs, GraphFormat, GraphResult, OverviewArgs, OverviewResult,
     ChoiceSearchArgs, ChoiceShowArgs, ChoiceShowResult, MemoryListArgs, MemoryListResult,
-    MemoryRememberArgs, MemoryRememberResult, MemorySearchArgs, SessionPrimeArgs,
-    SessionPrimeResult, SpecCloseArgs, SpecCloseResult, SpecCreateArgs, SpecCreateResult,
-    SpecListArgs, SpecListResult, SpecNoteArgs, SpecNoteResult, SpecShowArgs, SpecShowResult,
-    SpecUpdateArgs, SpecUpdateResult, TaskClaimArgs, TaskDoneArgs, TaskEventResult, TaskListArgs,
-    TaskListResult, TaskOpenArgs, TaskOpenResult, TaskReadyArgs, TaskShowArgs, TaskShowResult,
-    TaskUpdateArgs, VerbRequest, VerbResponse,
+    MemoryRememberArgs, MemoryRememberResult, MemorySearchArgs, SessionDistillArgs,
+    SessionDistillResult, SessionPrimeArgs, SessionPrimeResult, SessionStartArgs,
+    SessionStartResult, SkillRecordInvocationArgs, SkillRecordInvocationResult,
+    SkillRecurrenceArgs, SkillRecurrenceResult, SpecCloseArgs, SpecCloseResult, SpecCreateArgs,
+    SpecCreateResult, SpecListArgs, SpecListResult, SpecNoteArgs, SpecNoteResult, SpecShowArgs,
+    SpecShowResult, SpecUpdateArgs, SpecUpdateResult, TaskClaimArgs, TaskDoneArgs,
+    TaskEventResult, TaskListArgs, TaskListResult, TaskOpenArgs, TaskOpenResult, TaskReadyArgs,
+    TaskShowArgs, TaskShowResult, TaskUpdateArgs, VerbRequest, VerbResponse,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -89,6 +91,11 @@ enum Command {
         #[command(subcommand)]
         action: SessionAction,
     },
+    /// Skill self-improvement verbs (record-invocation, recurrence).
+    Skill {
+        #[command(subcommand)]
+        action: SkillAction,
+    },
     /// Single-screen project synthesis — open specs, cards-by-maturity,
     /// recent memories, most-connected card, and orphan cards. Bounded
     /// output regardless of project age.
@@ -143,6 +150,55 @@ enum SessionAction {
         /// Override the default memory cap (K=10).
         #[arg(long)]
         memory_cap: Option<usize>,
+    },
+    /// Generate (or write) a session id to `.orbit/.session-id`.
+    Start {
+        /// Use this id verbatim instead of generating a UUIDv4 (test fixtures
+        /// and replay scenarios only).
+        #[arg(long)]
+        id: Option<String>,
+    },
+    /// Write or update `.orbit/sessions/<id>.yaml` with the agent's
+    /// end-of-session reflection. Reads the distillate from stdin by default;
+    /// pass `--from <path>` to read from a file instead.
+    Distill {
+        /// Override the session id source (env var > .session-id file).
+        #[arg(long)]
+        session_id: Option<String>,
+        /// Read the distillate from this file instead of stdin.
+        #[arg(long)]
+        from: Option<PathBuf>,
+        /// Free-text labels (repeatable).
+        #[arg(long = "label")]
+        labels: Vec<String>,
+    },
+}
+
+/// Skill self-improvement verbs (record an invocation, query recurrence).
+#[derive(Debug, Subcommand)]
+enum SkillAction {
+    /// Append one invocation row to `.orbit/skills/<skill_id>.invocations.jsonl`.
+    RecordInvocation {
+        skill_id: String,
+        /// One of `worked`, `partial`, `didnt-apply`, `incorrect`.
+        #[arg(long)]
+        outcome: String,
+        /// Free-text describing what needed correction.
+        #[arg(long)]
+        correction: Option<String>,
+        /// Override the session id source (env var > .session-id file).
+        #[arg(long)]
+        session_id: Option<String>,
+        /// Override the substrate timestamp (RFC 3339). For migration/test use.
+        #[arg(long)]
+        timestamp: Option<String>,
+    },
+    /// Read the per-skill invocation stream and bucket by outcome.
+    Recurrence {
+        skill_id: String,
+        /// Only count rows whose timestamp is at or after this RFC 3339 cutoff.
+        #[arg(long)]
+        since: Option<String>,
     },
 }
 
@@ -901,6 +957,42 @@ fn build_request(layout: &OrbitLayout, command: &Command) -> Result<VerbRequest,
             SessionAction::Prime { memory_cap } => VerbRequest::SessionPrime(SessionPrimeArgs {
                 memory_cap: *memory_cap,
             }),
+            SessionAction::Start { id } => VerbRequest::SessionStart(SessionStartArgs {
+                id: id.clone(),
+            }),
+            SessionAction::Distill {
+                session_id,
+                from,
+                labels,
+            } => {
+                let distillate = read_distillate(from.as_deref())?;
+                VerbRequest::SessionDistill(SessionDistillArgs {
+                    session_id: session_id.clone(),
+                    distillate,
+                    labels: labels.clone(),
+                })
+            }
+        },
+        Command::Skill { action } => match action {
+            SkillAction::RecordInvocation {
+                skill_id,
+                outcome,
+                correction,
+                session_id,
+                timestamp,
+            } => VerbRequest::SkillRecordInvocation(SkillRecordInvocationArgs {
+                skill_id: skill_id.clone(),
+                outcome: outcome.clone(),
+                correction: correction.clone(),
+                session_id: session_id.clone(),
+                timestamp: timestamp.clone(),
+            }),
+            SkillAction::Recurrence { skill_id, since } => {
+                VerbRequest::SkillRecurrence(SkillRecurrenceArgs {
+                    skill_id: skill_id.clone(),
+                    since: since.clone(),
+                })
+            }
         },
         Command::Overview { memory_cap } => VerbRequest::Overview(OverviewArgs {
             memory_cap: *memory_cap,
@@ -970,7 +1062,47 @@ fn render_human(response: &VerbResponse) {
             render_choice_list(result)
         }
         VerbResponse::SessionPrime(result) => render_session_prime(result),
+        VerbResponse::SessionStart(result) => render_session_start(result),
+        VerbResponse::SessionDistill(result) => render_session_distill(result),
+        VerbResponse::SkillRecordInvocation(result) => render_skill_record_invocation(result),
+        VerbResponse::SkillRecurrence(result) => render_skill_recurrence(result),
     }
+}
+
+fn render_session_start(result: &SessionStartResult) {
+    println!("session started: {}", result.session_id);
+    println!("written to:      {}", result.path);
+}
+
+fn render_session_distill(result: &SessionDistillResult) {
+    println!("distilled: {} ({})", result.session.id, result.session.ended_at.as_deref().unwrap_or("-"));
+}
+
+fn render_skill_record_invocation(result: &SkillRecordInvocationResult) {
+    println!(
+        "recorded: {}\t{:?}\t{}",
+        result.invocation.skill_id, result.invocation.outcome, result.invocation.timestamp
+    );
+}
+
+fn render_skill_recurrence(result: &SkillRecurrenceResult) {
+    println!("skill: {}    total: {}", result.skill_id, result.total);
+    println!(
+        "  worked:      {}",
+        result.by_outcome.worked.count
+    );
+    println!(
+        "  partial:     {}",
+        result.by_outcome.partial.count
+    );
+    println!(
+        "  didnt-apply: {}",
+        result.by_outcome.didnt_apply.count
+    );
+    println!(
+        "  incorrect:   {}",
+        result.by_outcome.incorrect.count
+    );
 }
 
 fn render_session_prime(result: &SessionPrimeResult) {
@@ -1297,5 +1429,26 @@ fn render_spec_show(result: &SpecShowResult) {
             let gate = if ac.gate { " [gate]" } else { "" };
             println!("  [{check}] {}{gate}: {}", ac.id, ac.description);
         }
+    }
+}
+
+/// Read the session distillate from stdin (default) or a file (`--from`).
+///
+/// Empty input is rejected at the verb layer; this helper only handles I/O.
+fn read_distillate(from: Option<&std::path::Path>) -> Result<String, OrbitError> {
+    if let Some(path) = from {
+        std::fs::read_to_string(path).map_err(|e| {
+            OrbitError::unavailable(
+                "session.distill",
+                format!("read distillate from {}: {e}", path.display()),
+            )
+        })
+    } else {
+        let mut buf = String::new();
+        use std::io::Read;
+        std::io::stdin().read_to_string(&mut buf).map_err(|e| {
+            OrbitError::unavailable("session.distill", format!("read distillate from stdin: {e}"))
+        })?;
+        Ok(buf)
     }
 }

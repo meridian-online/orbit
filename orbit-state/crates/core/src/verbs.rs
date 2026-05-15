@@ -26,12 +26,13 @@ use crate::error::{Error, Result};
 use crate::layout::OrbitLayout;
 use crate::locks;
 use crate::schema::{
-    AcceptanceCriterion, Card, Choice, Memory, NoteEvent, Spec, SpecStatus, TaskEvent,
-    TaskEventKind,
+    AcceptanceCriterion, Card, Choice, InvocationOutcome, Memory, NoteEvent, Session,
+    SkillInvocation, Spec, SpecStatus, TaskEvent, TaskEventKind,
 };
+use crate::session::read_session_id;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -115,6 +116,14 @@ pub enum VerbRequest {
     ChoiceSearch(ChoiceSearchArgs),
     #[serde(rename = "session.prime")]
     SessionPrime(SessionPrimeArgs),
+    #[serde(rename = "session.start")]
+    SessionStart(SessionStartArgs),
+    #[serde(rename = "session.distill")]
+    SessionDistill(SessionDistillArgs),
+    #[serde(rename = "skill.record-invocation")]
+    SkillRecordInvocation(SkillRecordInvocationArgs),
+    #[serde(rename = "skill.recurrence")]
+    SkillRecurrence(SkillRecurrenceArgs),
 }
 
 /// Args for `spec.list`. Optional `status` filter; further filters land later.
@@ -437,6 +446,60 @@ pub struct SessionPrimeArgs {
     pub memory_cap: Option<usize>,
 }
 
+// ----------------------------------------------------------------------------
+// Session / skill verb args (spec 2026-05-15-agent-learning-loop)
+// ----------------------------------------------------------------------------
+
+/// Args for `session.start` — write a session id to `.orbit/.session-id`.
+///
+/// When `id` is supplied (typically by test fixtures or replay scenarios) it
+/// is used verbatim. Otherwise a UUIDv4 is generated. Re-running with no `id`
+/// overwrites with a new UUID — the intended "fresh session" semantics.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SessionStartArgs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// Args for `session.distill` — write or update `.orbit/sessions/<id>.yaml`.
+///
+/// `session_id` precedence: arg > `ORBIT_SESSION_ID` env > `.orbit/.session-id`.
+/// `distillate` is the agent's end-of-session reflection (free text).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SessionDistillArgs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub distillate: String,
+    #[serde(default)]
+    pub labels: Vec<String>,
+}
+
+/// Args for `skill.record-invocation` — append one row to the skill's stream.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SkillRecordInvocationArgs {
+    pub skill_id: String,
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correction: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+}
+
+/// Args for `skill.recurrence` — read per-outcome counts for one skill.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SkillRecurrenceArgs {
+    pub skill_id: String,
+    /// RFC 3339 cutoff — only rows with `timestamp >= since` are counted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+}
+
 /// Args for `spec.note` — append a timestamped note to a spec.
 ///
 /// The `timestamp` arg is the documented test/migration seam. Production
@@ -515,6 +578,14 @@ pub enum VerbResponse {
     ChoiceSearch(ChoiceListResult),
     #[serde(rename = "session.prime")]
     SessionPrime(SessionPrimeResult),
+    #[serde(rename = "session.start")]
+    SessionStart(SessionStartResult),
+    #[serde(rename = "session.distill")]
+    SessionDistill(SessionDistillResult),
+    #[serde(rename = "skill.record-invocation")]
+    SkillRecordInvocation(SkillRecordInvocationResult),
+    #[serde(rename = "skill.recurrence")]
+    SkillRecurrence(SkillRecurrenceResult),
 }
 
 /// Result for `spec.list`.
@@ -762,6 +833,61 @@ pub struct SessionPrimeResult {
     pub next_step: String,
 }
 
+/// Result for `session.start` — echoes the session id written to disk.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionStartResult {
+    pub session_id: String,
+    pub path: String,
+}
+
+/// Result for `session.distill` — echoes the post-write Session entity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionDistillResult {
+    pub session: Session,
+}
+
+/// Result for `skill.record-invocation` — echoes the appended row.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillRecordInvocationResult {
+    pub invocation: SkillInvocation,
+}
+
+/// One invocation entry returned by `skill.recurrence`. `correction` is
+/// omitted from the wire when the original record had none.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecurrenceInvocation {
+    pub timestamp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correction: Option<String>,
+}
+
+/// One outcome bucket — count + the entries that contributed to it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecurrenceBucket {
+    pub count: usize,
+    pub invocations: Vec<RecurrenceInvocation>,
+}
+
+/// Per-outcome breakdown for `skill.recurrence`. Every variant key is always
+/// present (even with count 0) so agents can index without first checking
+/// for missing keys.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecurrenceByOutcome {
+    pub worked: RecurrenceBucket,
+    pub partial: RecurrenceBucket,
+    #[serde(rename = "didnt-apply")]
+    pub didnt_apply: RecurrenceBucket,
+    pub incorrect: RecurrenceBucket,
+}
+
+/// Result for `skill.recurrence` — per-outcome counts + invocation entries.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillRecurrenceResult {
+    pub skill_id: String,
+    pub by_outcome: RecurrenceByOutcome,
+    pub total: usize,
+}
+
 /// Reduced view of a task — its current state derived from the last event
 /// for its task_id, plus the event history count.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -862,6 +988,18 @@ pub fn execute(layout: &OrbitLayout, request: &VerbRequest) -> Result<VerbRespon
         }
         VerbRequest::SessionPrime(args) => {
             session_prime(layout, args).map(VerbResponse::SessionPrime)
+        }
+        VerbRequest::SessionStart(args) => {
+            session_start(layout, args).map(VerbResponse::SessionStart)
+        }
+        VerbRequest::SessionDistill(args) => {
+            session_distill(layout, args).map(VerbResponse::SessionDistill)
+        }
+        VerbRequest::SkillRecordInvocation(args) => {
+            skill_record_invocation(layout, args).map(VerbResponse::SkillRecordInvocation)
+        }
+        VerbRequest::SkillRecurrence(args) => {
+            skill_recurrence(layout, args).map(VerbResponse::SkillRecurrence)
         }
     }
 }
@@ -2877,9 +3015,28 @@ fn session_prime(layout: &OrbitLayout, args: &SessionPrimeArgs) -> Result<Sessio
         .filter(|s| s.status == "open")
         .collect();
 
-    // Memories — sort by timestamp DESC, take up to cap.
+    // Per spec 2026-05-15-agent-learning-loop ac-06: when at least one open
+    // spec has a non-empty `labels` field, sort memories first by label-
+    // overlap with open-spec labels (descending), then by timestamp DESC,
+    // then truncate to cap. When no open spec has labels, sort by timestamp
+    // alone (the previous behaviour).
+    let open_spec_labels: BTreeSet<String> = open_specs
+        .iter()
+        .flat_map(|s| s.labels.iter().cloned())
+        .collect();
+    let use_overlap_sort = !open_spec_labels.is_empty();
+
     let mut memories = read_all_memories(layout, VERB)?;
-    memories.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    if use_overlap_sort {
+        memories.sort_by(|a, b| {
+            let a_overlap = a.labels.iter().filter(|l| open_spec_labels.contains(*l)).count();
+            let b_overlap = b.labels.iter().filter(|l| open_spec_labels.contains(*l)).count();
+            // Higher overlap first; tie-break on timestamp DESC.
+            b_overlap.cmp(&a_overlap).then_with(|| b.timestamp.cmp(&a.timestamp))
+        });
+    } else {
+        memories.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    }
     let effective = cap.min(memories.len());
     memories.truncate(effective);
 
@@ -2891,6 +3048,280 @@ fn session_prime(layout: &OrbitLayout, args: &SessionPrimeArgs) -> Result<Sessio
         item_bound,
         next_step: "Run `orbit overview` for a single-screen project synthesis (open specs, cards-by-maturity, recent memories, most-connected card, orphans).".into(),
     })
+}
+
+/// `session.start` — generate a session id (UUIDv4 by default) and write it
+/// to `.orbit/.session-id` atomically. When `id` is supplied (test fixtures,
+/// replay scenarios) it is used verbatim instead.
+fn session_start(layout: &OrbitLayout, args: &SessionStartArgs) -> Result<SessionStartResult> {
+    const VERB: &str = "session.start";
+
+    let session_id = match &args.id {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err(Error::malformed(VERB, "id must not be empty when supplied"));
+            }
+            if trimmed.contains('\n') || trimmed.contains('\r') {
+                return Err(Error::malformed(
+                    VERB,
+                    "id must not contain newline characters",
+                ));
+            }
+            trimmed.to_string()
+        }
+        None => uuid::Uuid::new_v4().to_string(),
+    };
+
+    layout
+        .ensure_dirs()
+        .map_err(|e| Error::unavailable(VERB, format!("ensure dirs: {e}")))?;
+
+    let path = layout.session_id_file();
+    let mut contents = session_id.clone();
+    contents.push('\n');
+    write_atomic(&path, contents.as_bytes()).map_err(|mut e| {
+        e.verb = VERB.into();
+        e
+    })?;
+
+    Ok(SessionStartResult {
+        session_id,
+        path: path.display().to_string(),
+    })
+}
+
+/// `session.distill` — write or update `.orbit/sessions/<id>.yaml` keyed by
+/// session id. Idempotent: re-running on the same id preserves `started_at`
+/// and advances `ended_at`.
+fn session_distill(
+    layout: &OrbitLayout,
+    args: &SessionDistillArgs,
+) -> Result<SessionDistillResult> {
+    const VERB: &str = "session.distill";
+
+    let session_id = match args.session_id.as_deref() {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err(Error::malformed(VERB, "session_id must not be empty"));
+            }
+            trimmed.to_string()
+        }
+        None => read_session_id(layout, VERB)?,
+    };
+
+    validate_session_id(VERB, &session_id)?;
+
+    if args.distillate.is_empty() {
+        return Err(Error::malformed(VERB, "distillate must not be empty"));
+    }
+
+    let lock_key = format!("session-{}", session_id);
+    let _guard = locks::acquire_default(layout, &lock_key).map_err(|mut e| {
+        e.verb = VERB.into();
+        e
+    })?;
+
+    std::fs::create_dir_all(layout.sessions_dir())
+        .map_err(|e| Error::unavailable(VERB, format!("ensure sessions dir: {e}")))?;
+
+    let now = current_rfc3339_utc().map_err(|e| {
+        Error::unavailable(VERB, format!("substrate timestamp generation failed: {e}"))
+    })?;
+    let path = layout.session_file(&session_id);
+
+    let started_at = if path.exists() {
+        let text = std::fs::read_to_string(&path).map_err(|e| {
+            Error::unavailable(VERB, format!("read {}: {e}", path.display()))
+        })?;
+        let existing: Session = parse_yaml(&text).map_err(|mut e| {
+            e.verb = VERB.into();
+            e
+        })?;
+        existing.started_at
+    } else {
+        now.clone()
+    };
+
+    let session = Session {
+        id: session_id,
+        started_at,
+        ended_at: Some(now),
+        distillate: args.distillate.clone(),
+        labels: args.labels.clone(),
+    };
+    let yaml = serialise_yaml(&session).map_err(|mut e| {
+        e.verb = VERB.into();
+        e
+    })?;
+    write_atomic(&path, yaml.as_bytes()).map_err(|mut e| {
+        e.verb = VERB.into();
+        e
+    })?;
+
+    Ok(SessionDistillResult { session })
+}
+
+/// `skill.record-invocation` — append one row to
+/// `.orbit/skills/<skill_id>.invocations.jsonl`.
+fn skill_record_invocation(
+    layout: &OrbitLayout,
+    args: &SkillRecordInvocationArgs,
+) -> Result<SkillRecordInvocationResult> {
+    const VERB: &str = "skill.record-invocation";
+
+    validate_skill_id(VERB, &args.skill_id)?;
+
+    let outcome = parse_invocation_outcome(VERB, &args.outcome)?;
+
+    let session_id = match args.session_id.as_deref() {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err(Error::malformed(VERB, "session_id must not be empty"));
+            }
+            trimmed.to_string()
+        }
+        None => read_session_id(layout, VERB)?,
+    };
+
+    let correction = match args.correction.as_deref() {
+        Some(s) if s.is_empty() => None,
+        Some(s) => Some(s.to_string()),
+        None => None,
+    };
+
+    let timestamp = match &args.timestamp {
+        Some(t) => t.clone(),
+        None => current_rfc3339_utc().map_err(|e| {
+            Error::unavailable(VERB, format!("substrate timestamp generation failed: {e}"))
+        })?,
+    };
+
+    let invocation = SkillInvocation {
+        skill_id: args.skill_id.clone(),
+        session_id,
+        outcome,
+        correction,
+        timestamp,
+    };
+
+    let lock_key = format!("skill-{}", args.skill_id);
+    let _guard = locks::acquire_default(layout, &lock_key).map_err(|mut e| {
+        e.verb = VERB.into();
+        e
+    })?;
+
+    std::fs::create_dir_all(layout.skills_dir())
+        .map_err(|e| Error::unavailable(VERB, format!("ensure skills dir: {e}")))?;
+
+    let line = serialise_json_line(&invocation).map_err(|mut e| {
+        e.verb = VERB.into();
+        e
+    })?;
+    let path = layout.skill_invocations_file(&args.skill_id);
+    append_jsonl_line(&path, &line).map_err(|mut e| {
+        e.verb = VERB.into();
+        e
+    })?;
+
+    Ok(SkillRecordInvocationResult { invocation })
+}
+
+/// `skill.recurrence` — read the per-skill invocation stream and bucket rows
+/// by outcome. Returns an empty-shape response when the file is absent.
+fn skill_recurrence(
+    layout: &OrbitLayout,
+    args: &SkillRecurrenceArgs,
+) -> Result<SkillRecurrenceResult> {
+    const VERB: &str = "skill.recurrence";
+
+    validate_skill_id(VERB, &args.skill_id)?;
+
+    let path = layout.skill_invocations_file(&args.skill_id);
+    let mut by_outcome = RecurrenceByOutcome::default();
+    let mut total = 0usize;
+
+    if path.exists() {
+        let text = std::fs::read_to_string(&path).map_err(|e| {
+            Error::unavailable(VERB, format!("read {}: {e}", path.display()))
+        })?;
+        for (lineno, raw) in text.lines().enumerate() {
+            if raw.is_empty() {
+                continue;
+            }
+            let invocation: SkillInvocation = parse_json_line(raw).map_err(|mut e| {
+                e.verb = VERB.into();
+                e.message = format!("{} (line {})", e.message, lineno + 1);
+                e
+            })?;
+            if let Some(cutoff) = args.since.as_deref() {
+                if invocation.timestamp.as_str() < cutoff {
+                    continue;
+                }
+            }
+            total += 1;
+            let bucket = match invocation.outcome {
+                InvocationOutcome::Worked => &mut by_outcome.worked,
+                InvocationOutcome::Partial => &mut by_outcome.partial,
+                InvocationOutcome::DidntApply => &mut by_outcome.didnt_apply,
+                InvocationOutcome::Incorrect => &mut by_outcome.incorrect,
+            };
+            bucket.count += 1;
+            bucket.invocations.push(RecurrenceInvocation {
+                timestamp: invocation.timestamp,
+                correction: invocation.correction,
+            });
+        }
+    }
+
+    Ok(SkillRecurrenceResult {
+        skill_id: args.skill_id.clone(),
+        by_outcome,
+        total,
+    })
+}
+
+fn parse_invocation_outcome(verb: &str, raw: &str) -> Result<InvocationOutcome> {
+    match raw {
+        "worked" => Ok(InvocationOutcome::Worked),
+        "partial" => Ok(InvocationOutcome::Partial),
+        "didnt-apply" => Ok(InvocationOutcome::DidntApply),
+        "incorrect" => Ok(InvocationOutcome::Incorrect),
+        other => Err(Error::malformed(
+            verb,
+            format!(
+                "outcome must be one of 'worked', 'partial', 'didnt-apply', 'incorrect'; got '{other}'"
+            ),
+        )),
+    }
+}
+
+fn validate_skill_id(verb: &str, id: &str) -> Result<()> {
+    if id.is_empty() {
+        return Err(Error::malformed(verb, "skill_id must not be empty"));
+    }
+    if id.contains('/') || id.contains('\\') || id.contains("..") {
+        return Err(Error::malformed(
+            verb,
+            format!("skill_id must not contain path separators or '..': '{id}'"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_session_id(verb: &str, id: &str) -> Result<()> {
+    if id.is_empty() {
+        return Err(Error::malformed(verb, "session_id must not be empty"));
+    }
+    if id.contains('/') || id.contains('\\') || id.contains("..") {
+        return Err(Error::malformed(
+            verb,
+            format!("session_id must not contain path separators or '..': '{id}'"),
+        ));
+    }
+    Ok(())
 }
 
 /// Generate an RFC 3339 UTC timestamp. The substrate's default clock for
@@ -4760,5 +5191,628 @@ mod tests {
             r.time_gated_open,
             vec!["ac-02".to_string(), "ac-03".to_string()]
         );
+    }
+
+    // ========================================================================
+    // Spec 2026-05-15-agent-learning-loop — Track A (skill self-improvement)
+    // ========================================================================
+
+    fn record_invocation(
+        layout: &OrbitLayout,
+        skill_id: &str,
+        outcome: &str,
+        correction: Option<&str>,
+        session_id: &str,
+        timestamp: Option<&str>,
+    ) -> Result<SkillInvocation> {
+        let args = SkillRecordInvocationArgs {
+            skill_id: skill_id.into(),
+            outcome: outcome.into(),
+            correction: correction.map(|s| s.to_string()),
+            session_id: Some(session_id.into()),
+            timestamp: timestamp.map(|s| s.to_string()),
+        };
+        skill_record_invocation(layout, &args).map(|r| r.invocation)
+    }
+
+    #[test]
+    fn skill_record_invocation_appends_row() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let inv = record_invocation(&layout, "card", "worked", None, "sess-1", None).unwrap();
+        assert_eq!(inv.skill_id, "card");
+        assert_eq!(inv.session_id, "sess-1");
+        assert_eq!(inv.outcome, InvocationOutcome::Worked);
+        assert!(!inv.timestamp.is_empty());
+
+        let path = layout.skill_invocations_file("card");
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body.lines().count(), 1, "exactly one JSONL row");
+
+        let parsed: SkillInvocation = serde_json::from_str(body.lines().next().unwrap()).unwrap();
+        assert_eq!(parsed, inv);
+    }
+
+    #[test]
+    fn skill_record_invocation_rejects_bad_outcome() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let err = record_invocation(&layout, "card", "fantastic", None, "sess-1", None)
+            .unwrap_err();
+        assert_eq!(err.category, Category::Malformed);
+        // The accepted set must surface in the message so agents see the
+        // valid options without re-reading the spec.
+        for expected in ["worked", "partial", "didnt-apply", "incorrect"] {
+            assert!(
+                err.message.contains(expected),
+                "expected '{expected}' in error message: {}",
+                err.message
+            );
+        }
+    }
+
+    #[test]
+    fn skill_record_invocation_missing_session_id() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        // Don't set ORBIT_SESSION_ID, don't write .orbit/.session-id.
+        // session_id arg also None → should be unavailable.
+        let args = SkillRecordInvocationArgs {
+            skill_id: "card".into(),
+            outcome: "worked".into(),
+            correction: None,
+            session_id: None,
+            timestamp: None,
+        };
+        let _g = ENV_LOCK.lock().unwrap();
+        let prior = std::env::var("ORBIT_SESSION_ID").ok();
+        std::env::remove_var("ORBIT_SESSION_ID");
+        let result = skill_record_invocation(&layout, &args);
+        if let Some(v) = prior {
+            std::env::set_var("ORBIT_SESSION_ID", v);
+        }
+        let err = result.unwrap_err();
+        assert_eq!(err.category, Category::Unavailable);
+        assert!(err.message.contains("ORBIT_SESSION_ID"));
+        assert!(err.message.contains(".session-id"));
+    }
+
+    #[test]
+    fn skill_record_invocation_omits_null_correction() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        record_invocation(&layout, "card", "worked", None, "sess-1", None).unwrap();
+        let body = std::fs::read_to_string(layout.skill_invocations_file("card")).unwrap();
+        let line = body.lines().next().unwrap();
+        assert!(
+            !line.contains("\"correction\""),
+            "absent correction must be omitted, not null: {line}"
+        );
+    }
+
+    #[test]
+    fn skill_record_invocation_creates_skills_dir() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        // ensure_dirs deliberately not called — skills_dir is created lazily.
+        layout.ensure_dirs().unwrap();
+        std::fs::remove_dir_all(layout.skills_dir()).ok();
+        assert!(!layout.skills_dir().exists());
+
+        record_invocation(&layout, "card", "worked", None, "sess-1", None).unwrap();
+        assert!(layout.skills_dir().is_dir());
+    }
+
+    #[test]
+    fn skill_recurrence_returns_per_outcome_counts() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        for (outcome, sess, t) in [
+            ("worked", "s1", "2026-05-15T10:00:00Z"),
+            ("worked", "s2", "2026-05-15T11:00:00Z"),
+            ("partial", "s1", "2026-05-15T12:00:00Z"),
+            ("incorrect", "s2", "2026-05-15T13:00:00Z"),
+        ] {
+            record_invocation(&layout, "design", outcome, None, sess, Some(t)).unwrap();
+        }
+
+        let resp = skill_recurrence(
+            &layout,
+            &SkillRecurrenceArgs {
+                skill_id: "design".into(),
+                since: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(resp.total, 4);
+        assert_eq!(resp.by_outcome.worked.count, 2);
+        assert_eq!(resp.by_outcome.partial.count, 1);
+        assert_eq!(resp.by_outcome.didnt_apply.count, 0);
+        assert_eq!(resp.by_outcome.incorrect.count, 1);
+    }
+
+    #[test]
+    fn skill_recurrence_all_outcome_keys_present() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        record_invocation(&layout, "design", "worked", None, "s1", None).unwrap();
+
+        let resp = skill_recurrence(
+            &layout,
+            &SkillRecurrenceArgs {
+                skill_id: "design".into(),
+                since: None,
+            },
+        )
+        .unwrap();
+        let json = serde_json::to_value(&resp).unwrap();
+        let by = &json["by_outcome"];
+        for key in ["worked", "partial", "didnt-apply", "incorrect"] {
+            assert!(by[key].is_object(), "missing outcome key: {key}");
+            assert!(by[key]["count"].is_number());
+            assert!(by[key]["invocations"].is_array());
+        }
+    }
+
+    #[test]
+    fn skill_recurrence_returns_corrections() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        record_invocation(
+            &layout,
+            "design",
+            "incorrect",
+            Some("missed the cold-fork contract"),
+            "s1",
+            Some("2026-05-15T10:00:00Z"),
+        )
+        .unwrap();
+
+        let resp = skill_recurrence(
+            &layout,
+            &SkillRecurrenceArgs {
+                skill_id: "design".into(),
+                since: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(resp.by_outcome.incorrect.invocations.len(), 1);
+        assert_eq!(
+            resp.by_outcome.incorrect.invocations[0].correction.as_deref(),
+            Some("missed the cold-fork contract")
+        );
+    }
+
+    #[test]
+    fn skill_recurrence_omits_null_correction() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        record_invocation(&layout, "design", "worked", None, "s1", None).unwrap();
+
+        let resp = skill_recurrence(
+            &layout,
+            &SkillRecurrenceArgs {
+                skill_id: "design".into(),
+                since: None,
+            },
+        )
+        .unwrap();
+        let json = serde_json::to_value(&resp).unwrap();
+        let inv = &json["by_outcome"]["worked"]["invocations"][0];
+        assert!(
+            inv.get("correction").is_none(),
+            "correction must be absent (not null) when not recorded: {inv}"
+        );
+    }
+
+    #[test]
+    fn skill_recurrence_filters_by_since() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        record_invocation(&layout, "design", "worked", None, "s1", Some("2026-05-10T00:00:00Z"))
+            .unwrap();
+        record_invocation(&layout, "design", "worked", None, "s1", Some("2026-05-15T00:00:00Z"))
+            .unwrap();
+
+        let resp = skill_recurrence(
+            &layout,
+            &SkillRecurrenceArgs {
+                skill_id: "design".into(),
+                since: Some("2026-05-12T00:00:00Z".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(resp.total, 1);
+        assert_eq!(resp.by_outcome.worked.count, 1);
+    }
+
+    #[test]
+    fn skill_recurrence_empty_when_no_file() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let resp = skill_recurrence(
+            &layout,
+            &SkillRecurrenceArgs {
+                skill_id: "design".into(),
+                since: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(resp.total, 0);
+        assert_eq!(resp.by_outcome.worked.count, 0);
+        assert_eq!(resp.by_outcome.partial.count, 0);
+        assert_eq!(resp.by_outcome.didnt_apply.count, 0);
+        assert_eq!(resp.by_outcome.incorrect.count, 0);
+    }
+
+    // ========================================================================
+    // Spec 2026-05-15-agent-learning-loop — Track B (session continuity)
+    // ========================================================================
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn session_start_writes_uuid_v4() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let r = session_start(&layout, &SessionStartArgs::default()).unwrap();
+        let uuid: uuid::Uuid = r.session_id.parse().expect("session id must be a UUID");
+        assert_eq!(uuid.get_version(), Some(uuid::Version::Random));
+
+        let on_disk = std::fs::read_to_string(layout.session_id_file()).unwrap();
+        assert_eq!(on_disk.trim(), r.session_id);
+    }
+
+    #[test]
+    fn session_start_with_id_arg_uses_verbatim() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let r = session_start(
+            &layout,
+            &SessionStartArgs {
+                id: Some("fixture-session-42".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(r.session_id, "fixture-session-42");
+        assert_eq!(
+            std::fs::read_to_string(layout.session_id_file())
+                .unwrap()
+                .trim(),
+            "fixture-session-42"
+        );
+    }
+
+    #[test]
+    fn session_distill_first_call_creates_file() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let r = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: Some("sess-A".into()),
+                distillate: "first reflection".into(),
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(r.session.id, "sess-A");
+        assert_eq!(r.session.distillate, "first reflection");
+        assert_eq!(r.session.started_at, r.session.ended_at.as_deref().unwrap_or(""));
+        assert!(layout.session_file("sess-A").exists());
+    }
+
+    #[test]
+    fn session_distill_is_idempotent() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let r1 = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: Some("sess-B".into()),
+                distillate: "v1".into(),
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        let started = r1.session.started_at.clone();
+
+        // Sleep briefly so the second call's RFC 3339 timestamp differs.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+
+        let r2 = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: Some("sess-B".into()),
+                distillate: "v2".into(),
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(r2.session.started_at, started, "started_at preserved");
+        assert_ne!(
+            r2.session.ended_at.as_deref(),
+            Some(started.as_str()),
+            "ended_at advances"
+        );
+        assert_eq!(r2.session.distillate, "v2");
+
+        // Exactly one file on disk.
+        let count = std::fs::read_dir(layout.sessions_dir()).unwrap().count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn session_distill_does_not_delete_session_id_file() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        std::fs::write(layout.session_id_file(), "sess-C\n").unwrap();
+
+        for _ in 0..2 {
+            session_distill(
+                &layout,
+                &SessionDistillArgs {
+                    session_id: Some("sess-C".into()),
+                    distillate: "x".into(),
+                    labels: vec![],
+                },
+            )
+            .unwrap();
+        }
+        assert!(layout.session_id_file().exists(), "Stop hook owns deletion, not distill");
+    }
+
+    #[test]
+    fn session_distill_session_id_precedence() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        std::fs::write(layout.session_id_file(), "from-file\n").unwrap();
+
+        let _g = ENV_LOCK.lock().unwrap();
+        let prior = std::env::var("ORBIT_SESSION_ID").ok();
+
+        // Arg overrides env + file.
+        std::env::set_var("ORBIT_SESSION_ID", "from-env");
+        let r = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: Some("from-arg".into()),
+                distillate: "d".into(),
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(r.session.id, "from-arg");
+
+        // Env overrides file when arg is absent.
+        let r = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: None,
+                distillate: "d".into(),
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(r.session.id, "from-env");
+
+        // File only when env unset.
+        std::env::remove_var("ORBIT_SESSION_ID");
+        let r = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: None,
+                distillate: "d".into(),
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(r.session.id, "from-file");
+
+        match prior {
+            Some(v) => std::env::set_var("ORBIT_SESSION_ID", v),
+            None => std::env::remove_var("ORBIT_SESSION_ID"),
+        }
+    }
+
+    #[test]
+    fn session_verbs_work_without_hooks() {
+        // ac-09 invariant: even with no hooks installed, CLI verbs succeed
+        // when ORBIT_SESSION_ID is set in env.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let _g = ENV_LOCK.lock().unwrap();
+        let prior = std::env::var("ORBIT_SESSION_ID").ok();
+        std::env::set_var("ORBIT_SESSION_ID", "env-only-session");
+
+        let inv = skill_record_invocation(
+            &layout,
+            &SkillRecordInvocationArgs {
+                skill_id: "design".into(),
+                outcome: "worked".into(),
+                correction: None,
+                session_id: None,
+                timestamp: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(inv.invocation.session_id, "env-only-session");
+
+        let dist = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: None,
+                distillate: "x".into(),
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(dist.session.id, "env-only-session");
+
+        match prior {
+            Some(v) => std::env::set_var("ORBIT_SESSION_ID", v),
+            None => std::env::remove_var("ORBIT_SESSION_ID"),
+        }
+    }
+
+    #[test]
+    fn session_prime_prefers_label_overlap_memories() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        // Spec with labels.
+        let spec = Spec {
+            id: "0010".into(),
+            goal: "do the foo".into(),
+            cards: vec![],
+            status: SpecStatus::Open,
+            labels: vec!["foo".into(), "bar".into()],
+            acceptance_criteria: vec![],
+        };
+        layout.ensure_spec_dir("0010").unwrap();
+        std::fs::write(layout.spec_file("0010"), serialise_yaml(&spec).unwrap()).unwrap();
+
+        memory_remember(
+            &layout,
+            &MemoryRememberArgs {
+                key: "older-overlap".into(),
+                body: "matches foo".into(),
+                labels: vec!["foo".into()],
+                timestamp: Some("2026-05-01T00:00:00Z".into()),
+            },
+        )
+        .unwrap();
+        memory_remember(
+            &layout,
+            &MemoryRememberArgs {
+                key: "newer-unrelated".into(),
+                body: "no overlap".into(),
+                labels: vec!["unrelated".into()],
+                timestamp: Some("2026-05-14T00:00:00Z".into()),
+            },
+        )
+        .unwrap();
+
+        let resp = session_prime(&layout, &SessionPrimeArgs::default()).unwrap();
+        let keys: Vec<_> = resp.memories.iter().map(|m| m.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            vec!["older-overlap", "newer-unrelated"],
+            "label-overlap memory comes first even when older"
+        );
+    }
+
+    #[test]
+    fn session_prime_falls_back_to_recency_when_no_overlap() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        let spec = Spec {
+            id: "0011".into(),
+            goal: "x".into(),
+            cards: vec![],
+            status: SpecStatus::Open,
+            labels: vec!["xyz".into()],
+            acceptance_criteria: vec![],
+        };
+        layout.ensure_spec_dir("0011").unwrap();
+        std::fs::write(layout.spec_file("0011"), serialise_yaml(&spec).unwrap()).unwrap();
+
+        memory_remember(
+            &layout,
+            &MemoryRememberArgs {
+                key: "older".into(),
+                body: "x".into(),
+                labels: vec!["a".into()],
+                timestamp: Some("2026-05-01T00:00:00Z".into()),
+            },
+        )
+        .unwrap();
+        memory_remember(
+            &layout,
+            &MemoryRememberArgs {
+                key: "newer".into(),
+                body: "x".into(),
+                labels: vec!["b".into()],
+                timestamp: Some("2026-05-14T00:00:00Z".into()),
+            },
+        )
+        .unwrap();
+
+        let resp = session_prime(&layout, &SessionPrimeArgs::default()).unwrap();
+        let keys: Vec<_> = resp.memories.iter().map(|m| m.key.as_str()).collect();
+        // Both have zero overlap; tie-break by timestamp DESC.
+        assert_eq!(keys, vec!["newer", "older"]);
+    }
+
+    #[test]
+    fn session_prime_unchanged_when_no_spec_labels() {
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        let spec = Spec {
+            id: "0012".into(),
+            goal: "x".into(),
+            cards: vec![],
+            status: SpecStatus::Open,
+            labels: vec![],
+            acceptance_criteria: vec![],
+        };
+        layout.ensure_spec_dir("0012").unwrap();
+        std::fs::write(layout.spec_file("0012"), serialise_yaml(&spec).unwrap()).unwrap();
+
+        memory_remember(
+            &layout,
+            &MemoryRememberArgs {
+                key: "older".into(),
+                body: "x".into(),
+                labels: vec!["foo".into()],
+                timestamp: Some("2026-05-01T00:00:00Z".into()),
+            },
+        )
+        .unwrap();
+        memory_remember(
+            &layout,
+            &MemoryRememberArgs {
+                key: "newer".into(),
+                body: "x".into(),
+                labels: vec!["bar".into()],
+                timestamp: Some("2026-05-14T00:00:00Z".into()),
+            },
+        )
+        .unwrap();
+
+        let resp = session_prime(&layout, &SessionPrimeArgs::default()).unwrap();
+        let keys: Vec<_> = resp.memories.iter().map(|m| m.key.as_str()).collect();
+        assert_eq!(keys, vec!["newer", "older"]);
     }
 }

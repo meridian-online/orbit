@@ -724,6 +724,137 @@ fn spec_close_cli_time_gated_only_proceeds_without_force() {
     assert!(spec_text.contains("status: closed"), "spec not closed: {spec_text}");
 }
 
+// ---------------------------------------------------------------------------
+// Spec 2026-05-15-agent-learning-loop parity tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn session_start_cli_envelope_matches_canonical() {
+    let dir = tempfile::tempdir().unwrap();
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args([
+            "--root",
+            dir.path().to_str().unwrap(),
+            "--json",
+            "session",
+            "start",
+            "--id",
+            common::PARITY_SESSION_ID,
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+    assert!(output.status.success(), "stderr={}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let actual = stdout.trim_end_matches('\n');
+    assert_eq!(actual, common::expected_envelope_for_session_start(dir.path()));
+
+    let on_disk = std::fs::read_to_string(dir.path().join(".orbit/.session-id")).unwrap();
+    assert_eq!(on_disk.trim(), common::PARITY_SESSION_ID);
+}
+
+#[test]
+fn skill_record_invocation_cli_envelope_matches_canonical() {
+    let dir = tempfile::tempdir().unwrap();
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args([
+            "--root",
+            dir.path().to_str().unwrap(),
+            "--json",
+            "skill",
+            "record-invocation",
+            "card",
+            "--outcome",
+            "worked",
+            "--session-id",
+            common::PARITY_SESSION_ID,
+            "--timestamp",
+            common::PARITY_TIMESTAMP,
+        ])
+        .env_remove("ORBIT_SESSION_ID")
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+    assert!(output.status.success(), "stderr={}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let actual = stdout.trim_end_matches('\n');
+    assert_eq!(actual, common::expected_envelope_for_skill_record_invocation());
+
+    // State parity: one JSONL row on disk.
+    let path = dir.path().join(".orbit/skills/card.invocations.jsonl");
+    let body = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(body.lines().count(), 1);
+}
+
+#[test]
+fn skill_recurrence_cli_envelope_empty_matches_canonical() {
+    let dir = tempfile::tempdir().unwrap();
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args([
+            "--root",
+            dir.path().to_str().unwrap(),
+            "--json",
+            "skill",
+            "recurrence",
+            "design",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+    assert!(output.status.success(), "stderr={}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let actual = stdout.trim_end_matches('\n');
+    assert_eq!(actual, common::expected_envelope_for_skill_recurrence_empty());
+}
+
+#[test]
+fn session_distill_cli_envelope_matches_canonical() {
+    use orbit_state_core::schema::Session;
+    let dir = tempfile::tempdir().unwrap();
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+
+    // Write the distillate via --from to avoid stdin plumbing.
+    let from = dir.path().join("distillate.txt");
+    std::fs::write(&from, "parity-distillate").unwrap();
+
+    let output = Command::new(cli_bin)
+        .args([
+            "--root",
+            dir.path().to_str().unwrap(),
+            "--json",
+            "session",
+            "distill",
+            "--session-id",
+            common::PARITY_SESSION_ID,
+            "--from",
+            from.to_str().unwrap(),
+        ])
+        .env_remove("ORBIT_SESSION_ID")
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+    assert!(output.status.success(), "stderr={}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let actual = stdout.trim_end_matches('\n');
+
+    // Read substrate-stamped timestamps from disk.
+    let session_path = dir
+        .path()
+        .join(".orbit/sessions")
+        .join(format!("{}.yaml", common::PARITY_SESSION_ID));
+    let text = std::fs::read_to_string(&session_path).unwrap();
+    let session: Session = serde_yaml::from_str(&text).unwrap();
+    let expected = common::expected_envelope_for_session_distill(
+        "parity-distillate",
+        &session.started_at,
+        session.ended_at.as_deref().unwrap_or(""),
+    );
+    assert_eq!(actual, expected);
+}
+
 // Helper visible to ensure the test binary depends on the CLI binary.
 #[allow(dead_code)]
 fn _binary_dep_anchor(_p: &Path) {}

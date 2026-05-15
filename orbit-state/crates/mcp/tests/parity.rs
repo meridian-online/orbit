@@ -391,3 +391,85 @@ fn inner_envelope_text(response: &Value) -> String {
         .map(String::from)
         .unwrap_or_else(|| panic!("missing /result/content/0/text in response: {response}"))
 }
+
+// ---------------------------------------------------------------------------
+// Spec 2026-05-15-agent-learning-loop parity tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn session_start_mcp_envelope_matches_canonical() {
+    let dir = tempfile::tempdir().unwrap();
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({ "name": "session.start", "arguments": { "id": common::PARITY_SESSION_ID } }),
+    );
+    let envelope = inner_envelope_text(&inner);
+    assert_eq!(envelope, common::expected_envelope_for_session_start(dir.path()));
+
+    let on_disk = std::fs::read_to_string(dir.path().join(".orbit/.session-id")).unwrap();
+    assert_eq!(on_disk.trim(), common::PARITY_SESSION_ID);
+}
+
+#[test]
+fn skill_record_invocation_mcp_envelope_matches_canonical() {
+    let dir = tempfile::tempdir().unwrap();
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({
+            "name": "skill.record-invocation",
+            "arguments": {
+                "skill_id": "card",
+                "outcome": "worked",
+                "session_id": common::PARITY_SESSION_ID,
+                "timestamp": common::PARITY_TIMESTAMP,
+            }
+        }),
+    );
+    let envelope = inner_envelope_text(&inner);
+    assert_eq!(envelope, common::expected_envelope_for_skill_record_invocation());
+
+    let path = dir.path().join(".orbit/skills/card.invocations.jsonl");
+    let body = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(body.lines().count(), 1);
+}
+
+#[test]
+fn skill_recurrence_mcp_envelope_empty_matches_canonical() {
+    let dir = tempfile::tempdir().unwrap();
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({ "name": "skill.recurrence", "arguments": { "skill_id": "design" } }),
+    );
+    let envelope = inner_envelope_text(&inner);
+    assert_eq!(envelope, common::expected_envelope_for_skill_recurrence_empty());
+}
+
+#[test]
+fn session_distill_mcp_envelope_matches_canonical() {
+    use orbit_state_core::schema::Session;
+    let dir = tempfile::tempdir().unwrap();
+    let inner = run_mcp_tools_call(
+        dir.path(),
+        json!({
+            "name": "session.distill",
+            "arguments": {
+                "session_id": common::PARITY_SESSION_ID,
+                "distillate": "parity-distillate",
+            }
+        }),
+    );
+    let envelope = inner_envelope_text(&inner);
+
+    let session_path = dir
+        .path()
+        .join(".orbit/sessions")
+        .join(format!("{}.yaml", common::PARITY_SESSION_ID));
+    let text = std::fs::read_to_string(&session_path).unwrap();
+    let session: Session = serde_yaml::from_str(&text).unwrap();
+    let expected = common::expected_envelope_for_session_distill(
+        "parity-distillate",
+        &session.started_at,
+        session.ended_at.as_deref().unwrap_or(""),
+    );
+    assert_eq!(envelope, expected);
+}

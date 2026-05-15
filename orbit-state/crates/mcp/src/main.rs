@@ -472,6 +472,60 @@ fn tool_descriptors() -> Vec<Value> {
                 "additionalProperties": false
             }
         }),
+        json!({
+            "name": "session.start",
+            "description": "Generate a session id (UUIDv4) and write it to .orbit/.session-id. Pass `id` to use a verbatim value (test/replay).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "Use this id verbatim instead of generating a UUIDv4." }
+                },
+                "additionalProperties": false
+            }
+        }),
+        json!({
+            "name": "session.distill",
+            "description": "Write or update .orbit/sessions/<id>.yaml with the agent's end-of-session reflection. Idempotent on session_id.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["distillate"],
+                "properties": {
+                    "session_id": { "type": "string", "description": "Override the session id source (env var > .session-id file)." },
+                    "distillate": { "type": "string", "description": "Free-text end-of-session reflection." },
+                    "labels": { "type": "array", "items": { "type": "string" } }
+                },
+                "additionalProperties": false
+            }
+        }),
+        json!({
+            "name": "skill.record-invocation",
+            "description": "Append one row to .orbit/skills/<skill_id>.invocations.jsonl recording how a skill ran.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["skill_id", "outcome"],
+                "properties": {
+                    "skill_id": { "type": "string" },
+                    "outcome": { "type": "string", "enum": ["worked", "partial", "didnt-apply", "incorrect"] },
+                    "correction": { "type": "string", "description": "Free-text record of what was corrected (optional)." },
+                    "session_id": { "type": "string", "description": "Override the session id source." },
+                    "timestamp": { "type": "string" }
+                },
+                "additionalProperties": false
+            }
+        }),
+        json!({
+            "name": "skill.recurrence",
+            "description": "Read the per-skill invocation stream and bucket rows by outcome. Returns the empty shape (all zeros) when the file is absent.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["skill_id"],
+                "properties": {
+                    "skill_id": { "type": "string" },
+                    "since": { "type": "string", "description": "RFC 3339 cutoff — only count rows with timestamp >= since." }
+                },
+                "additionalProperties": false
+            }
+        }),
     ]
 }
 
