@@ -2,7 +2,6 @@
 name: release
 description: Bump orbit plugin version, commit, push, and reload into Claude Code
 user-invocable: true
-model: sonnet
 ---
 
 # /orb:release
