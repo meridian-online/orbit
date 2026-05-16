@@ -1,0 +1,42 @@
+id: 0036-session-handover
+feature: Session handover — outgoing agent leaves a forward prompt the next session reads first
+as_a: agent starting a new session (or Hugh resuming work after a gap)
+i_want: the previous session's outgoing agent to have left a curated, forward-looking handover prompt — what was in flight, what's the next concrete step, what context the next session needs — that I read before doing anything else
+so_that: cross-session continuity does not depend on reconstructing context from git log + memos + specs every time; the agent that just lived the work pays the compression cost so the next agent does not have to
+goal: every session ends with a deliberate handover artefact and every session starts by reading the most recent one — cross-session pickup time drops from "browse to reconstruct" to "read one prompt"
+maturity: planned
+scenarios:
+- name: Outgoing agent writes a handover before session end
+  given: a session approaching its end (Stop hook firing, or context-window pressure)
+  when: the agent prepares to hand over
+  then: it writes a forward-looking prompt naming what's in flight, the next concrete step, and any context the next session needs to pick up cleanly
+  gate: true
+- name: Incoming agent reads the handover first
+  given: a new session starting in a project with a prior handover artefact
+  when: orbit session prime fires at SessionStart
+  then: the most recent handover is surfaced alongside open specs and recent memories — the agent reads it before deciding next action
+  gate: true
+- name: The handover is curated, not raw
+  given: an agent writing a handover
+  when: it composes the prompt
+  then: it is written deliberately (TL;DR + next step + blockers + open threads) — not the raw Stop-hook payload, not a transcript dump
+  gate: true
+- name: The existing ad-hoc habit gets a substrate seat
+  given: agents are already producing handover-shaped prose ad-hoc in their final response
+  when: the capability is formalised
+  then: there is a named place for it (a skill, a CLI verb, or a field on the Session entity) and a wire ensuring the next session reads it before doing other work
+  gate: false
+specs:
+- .orbit/specs/2026-05-16-session-handover/spec.yaml
+relations:
+- card: 0023-memory-loop
+  type: feeds
+  reason: memories carry durable facts across sessions; handover prompts carry the in-flight state — together they are the cross-session continuity surface
+- card: 0022-skill-curator
+  type: depends-on
+  reason: if the handover lands as a /orb:handover skill, the skill-curator front-matter and lifecycle rules apply once shipped
+references:
+- '.orbit/memos/2026-05-16-handover-prompt-skill.md: distillation source'
+- '.orbit/specs/2026-05-15-agent-learning-loop/spec.yaml: shipped the Stop-hook + Session entity infrastructure this card would sit on top of'
+- '.orbit/sessions/: currently holds raw Stop-hook JSON in distillate; this card replaces that with a curated handover'
+notes: []
