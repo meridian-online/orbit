@@ -492,7 +492,32 @@ fn tool_descriptors() -> Vec<Value> {
                 "properties": {
                     "session_id": { "type": "string", "description": "Override the session id source (env var > .session-id file)." },
                     "distillate": { "type": "string", "description": "Free-text end-of-session reflection." },
+                    "card_id": { "type": "string", "description": "Optional card slug scoping this session. Falls back to .orbit/.session-card when omitted." },
                     "labels": { "type": "array", "items": { "type": "string" } }
+                },
+                "additionalProperties": false
+            }
+        }),
+        json!({
+            "name": "session.set-card",
+            "description": "Validate a card id and write the canonical slug to .orbit/.session-card. The next session.distill (typically the Stop hook) scopes the session to that card.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["card_id"],
+                "properties": {
+                    "card_id": { "type": "string", "description": "Card id (full slug, padded NNNN, or bare unpadded number)." }
+                },
+                "additionalProperties": false
+            }
+        }),
+        json!({
+            "name": "session.handover",
+            "description": "Return the most-recent matching Session (or handover: null when none). Filter by --card and/or --since (RFC 3339 lower bound).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "card_id": { "type": "string", "description": "Card id (full slug, padded NNNN, or bare unpadded number)." },
+                    "since": { "type": "string", "description": "RFC 3339 cutoff — only consider sessions with started_at >= since." }
                 },
                 "additionalProperties": false
             }

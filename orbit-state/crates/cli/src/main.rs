@@ -29,7 +29,8 @@ use orbit_state_core::{
     ChoiceListResult, GraphArgs, GraphFormat, GraphResult, OverviewArgs, OverviewResult,
     ChoiceSearchArgs, ChoiceShowArgs, ChoiceShowResult, MemoryListArgs, MemoryListResult,
     MemoryRememberArgs, MemoryRememberResult, MemorySearchArgs, SessionDistillArgs,
-    SessionDistillResult, SessionPrimeArgs, SessionPrimeResult, SessionStartArgs,
+    SessionDistillResult, SessionHandoverArgs, SessionHandoverResult, SessionPrimeArgs,
+    SessionPrimeResult, SessionSetCardArgs, SessionSetCardResult, SessionStartArgs,
     SessionStartResult, SkillRecordInvocationArgs, SkillRecordInvocationResult,
     SkillRecurrenceArgs, SkillRecurrenceResult, SpecCloseArgs, SpecCloseResult, SpecCreateArgs,
     SpecCreateResult, SpecListArgs, SpecListResult, SpecNoteArgs, SpecNoteResult, SpecShowArgs,
@@ -171,6 +172,31 @@ enum SessionAction {
         /// Free-text labels (repeatable).
         #[arg(long = "label")]
         labels: Vec<String>,
+        /// Card slug scoping the distilled session. When omitted, falls
+        /// back to `.orbit/.session-card` (written by `orbit session
+        /// set-card <id>`). Not validated at distill time — validation
+        /// lives at set-card time. See spec 2026-05-16-session-handover.
+        #[arg(long = "card")]
+        card_id: Option<String>,
+    },
+    /// Write `.orbit/.session-card` with a validated card slug so the
+    /// next `orbit session distill` (typically the Stop hook) scopes the
+    /// session to that card. Idempotent — re-running overwrites. See
+    /// spec 2026-05-16-session-handover ac-04.
+    SetCard {
+        /// Card id (full slug, padded NNNN, or bare unpadded number).
+        card_id: String,
+    },
+    /// Return the most-recent matching Session (or null when no match).
+    /// See spec 2026-05-16-session-handover ac-06.
+    Handover {
+        /// Card id (full slug, padded NNNN, or bare unpadded number).
+        #[arg(long = "card")]
+        card_id: Option<String>,
+        /// Only consider sessions with `started_at` >= this RFC 3339
+        /// timestamp (lexical comparison — RFC 3339 sorts correctly).
+        #[arg(long)]
+        since: Option<String>,
     },
 }
 
@@ -976,12 +1002,25 @@ fn build_request(layout: &OrbitLayout, command: &Command) -> Result<VerbRequest,
                 session_id,
                 from,
                 labels,
+                card_id,
             } => {
                 let distillate = read_distillate(from.as_deref())?;
                 VerbRequest::SessionDistill(SessionDistillArgs {
                     session_id: session_id.clone(),
                     distillate,
+                    card_id: card_id.clone(),
                     labels: labels.clone(),
+                })
+            }
+            SessionAction::SetCard { card_id } => {
+                VerbRequest::SessionSetCard(SessionSetCardArgs {
+                    card_id: card_id.clone(),
+                })
+            }
+            SessionAction::Handover { card_id, since } => {
+                VerbRequest::SessionHandover(SessionHandoverArgs {
+                    card_id: card_id.clone(),
+                    since: since.clone(),
                 })
             }
         },
@@ -1076,8 +1115,34 @@ fn render_human(response: &VerbResponse) {
         VerbResponse::SessionPrime(result) => render_session_prime(result),
         VerbResponse::SessionStart(result) => render_session_start(result),
         VerbResponse::SessionDistill(result) => render_session_distill(result),
+        VerbResponse::SessionSetCard(result) => render_session_set_card(result),
+        VerbResponse::SessionHandover(result) => render_session_handover(result),
         VerbResponse::SkillRecordInvocation(result) => render_skill_record_invocation(result),
         VerbResponse::SkillRecurrence(result) => render_skill_recurrence(result),
+    }
+}
+
+fn render_session_set_card(result: &SessionSetCardResult) {
+    println!("set-card: {}", result.card_id);
+    println!("written:  {}", result.path);
+}
+
+fn render_session_handover(result: &SessionHandoverResult) {
+    match &result.handover {
+        Some(h) => {
+            println!(
+                "handover: {} ({})",
+                h.session_id,
+                h.card_id.as_deref().unwrap_or("-"),
+            );
+            println!("started_at: {}", h.started_at);
+            if let Some(end) = &h.ended_at {
+                println!("ended_at:   {}", end);
+            }
+            println!();
+            println!("{}", h.distillate);
+        }
+        None => println!("handover: (none)"),
     }
 }
 
@@ -1119,6 +1184,17 @@ fn render_skill_recurrence(result: &SkillRecurrenceResult) {
 
 fn render_session_prime(result: &SessionPrimeResult) {
     println!("session.prime — bound: {} items", result.item_bound);
+    if let Some(h) = &result.handover {
+        println!();
+        println!(
+            "Handover: {} ({})",
+            h.session_id,
+            h.card_id.as_deref().unwrap_or("-")
+        );
+        println!("Started:  {}", h.started_at);
+        println!();
+        println!("{}", h.distillate);
+    }
     println!();
     if !result.open_specs.is_empty() {
         println!("Open specs ({}):", result.open_specs.len());
@@ -1446,6 +1522,13 @@ fn render_spec_show(result: &SpecShowResult) {
 
 /// Read the session distillate from stdin (default) or a file (`--from`).
 ///
+/// Per spec 2026-05-16-session-handover ac-05: stdin reads as raw bytes
+/// and routes through `extract_distillate_from_stdin`, which detects a
+/// Claude Code Stop-hook JSON envelope and pulls `last_assistant_message`
+/// out, otherwise returning the lossy-utf8 stdin verbatim. The `--from`
+/// path is plain-text-only — file inputs already carry curated prose and
+/// shouldn't pass through envelope detection.
+///
 /// Empty input is rejected at the verb layer; this helper only handles I/O.
 fn read_distillate(from: Option<&std::path::Path>) -> Result<String, OrbitError> {
     if let Some(path) = from {
@@ -1456,11 +1539,11 @@ fn read_distillate(from: Option<&std::path::Path>) -> Result<String, OrbitError>
             )
         })
     } else {
-        let mut buf = String::new();
+        let mut buf = Vec::new();
         use std::io::Read;
-        std::io::stdin().read_to_string(&mut buf).map_err(|e| {
+        std::io::stdin().read_to_end(&mut buf).map_err(|e| {
             OrbitError::unavailable("session.distill", format!("read distillate from stdin: {e}"))
         })?;
-        Ok(buf)
+        Ok(orbit_state_core::session::extract_distillate_from_stdin(&buf))
     }
 }

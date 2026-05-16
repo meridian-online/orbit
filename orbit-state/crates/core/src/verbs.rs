@@ -29,7 +29,7 @@ use crate::schema::{
     AcceptanceCriterion, Card, Choice, InvocationOutcome, Memory, NoteEvent, Session,
     SkillInvocation, Spec, SpecStatus, TaskEvent, TaskEventKind,
 };
-use crate::session::read_session_id;
+use crate::session::{read_session_card, read_session_id};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -120,6 +120,10 @@ pub enum VerbRequest {
     SessionStart(SessionStartArgs),
     #[serde(rename = "session.distill")]
     SessionDistill(SessionDistillArgs),
+    #[serde(rename = "session.set-card")]
+    SessionSetCard(SessionSetCardArgs),
+    #[serde(rename = "session.handover")]
+    SessionHandover(SessionHandoverArgs),
     #[serde(rename = "skill.record-invocation")]
     SkillRecordInvocation(SkillRecordInvocationArgs),
     #[serde(rename = "skill.recurrence")]
@@ -472,8 +476,42 @@ pub struct SessionDistillArgs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     pub distillate: String,
+    /// Optional card slug scoping the distilled session. Resolution
+    /// precedence (per spec 2026-05-16-session-handover ac-03): explicit
+    /// arg first, else `.orbit/.session-card` fallback, else None. The
+    /// id is NOT validated at distill time — validation lives at
+    /// `session.set-card` time so the hot path stays cheap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_id: Option<String>,
     #[serde(default)]
     pub labels: Vec<String>,
+}
+
+/// Args for `session.set-card` — validate a card id and write the canonical
+/// slug to `.orbit/.session-card` so the next `session.distill` (typically
+/// the Stop hook) scopes the session to that card.
+///
+/// See spec 2026-05-16-session-handover ac-04.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SessionSetCardArgs {
+    pub card_id: String,
+}
+
+/// Args for `session.handover` — return the most-recent matching Session.
+/// Both fields optional: no `card_id` means "latest across all cards";
+/// no `since` means "no lower bound". When the sessions directory is
+/// absent or no Session matches, the result envelope carries
+/// `handover: null` (NOT an error — same shape as `skill.recurrence`).
+///
+/// See spec 2026-05-16-session-handover ac-06.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SessionHandoverArgs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
 }
 
 /// Args for `skill.record-invocation` — append one row to the skill's stream.
@@ -582,6 +620,10 @@ pub enum VerbResponse {
     SessionStart(SessionStartResult),
     #[serde(rename = "session.distill")]
     SessionDistill(SessionDistillResult),
+    #[serde(rename = "session.set-card")]
+    SessionSetCard(SessionSetCardResult),
+    #[serde(rename = "session.handover")]
+    SessionHandover(SessionHandoverResult),
     #[serde(rename = "skill.record-invocation")]
     SkillRecordInvocation(SkillRecordInvocationResult),
     #[serde(rename = "skill.recurrence")]
@@ -826,11 +868,23 @@ pub struct ChoiceSummary {
 pub struct SessionPrimeResult {
     pub open_specs: Vec<SpecSummary>,
     pub memories: Vec<Memory>,
-    /// Hard upper bound on items: 40 + 2*open_specs + min(memory_cap, 10).
+    /// Most-recent Session across all cards (no card filter at prime —
+    /// per-card lookup is via `orbit session handover --card <id>`). The
+    /// agent reads this before any other action when it's Some. See
+    /// spec 2026-05-16-session-handover ac-07.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handover: Option<HandoverSummary>,
+    /// Hard upper bound on items: 40 + 2*open_specs + min(memory_cap, 10),
+    /// plus +1 when `handover` is Some — so clients know the field is in
+    /// the bound (otherwise it's invisible to them).
     pub item_bound: usize,
     /// Next-step suggestion. Per tree-views ac-07 this references `orbit
     /// overview` so a fresh session reaches the synthesis layer in one
     /// step — the load-bearing wire from card 0033's surfacing scenario.
+    /// When `handover` is Some the prefix sentinel from ac-07 of spec
+    /// 2026-05-16-session-handover (`"Read the handover above before any
+    /// other action. "`) is joined onto the front so the next agent reads
+    /// the handover before the overview.
     pub next_step: String,
 }
 
@@ -845,6 +899,38 @@ pub struct SessionStartResult {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionDistillResult {
     pub session: Session,
+}
+
+/// Result for `session.set-card` — echoes the canonical resolved slug
+/// and the path the substrate wrote. See spec 2026-05-16-session-handover
+/// ac-04 for the validation + atomic-write contract.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionSetCardResult {
+    pub card_id: String,
+    pub path: String,
+}
+
+/// Per-card session summary surfaced by `session.handover` and embedded
+/// in the `session.prime` envelope (ac-07). Subset of `Session` carrying
+/// just the orientation-relevant fields — the full entity is on disk for
+/// callers who want it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HandoverSummary {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_id: Option<String>,
+    pub started_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<String>,
+    pub distillate: String,
+}
+
+/// Result for `session.handover` — the most-recent matching Session, or
+/// `None` when no Session matches. See spec 2026-05-16-session-handover
+/// ac-06 for the no-match-is-not-an-error contract.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionHandoverResult {
+    pub handover: Option<HandoverSummary>,
 }
 
 /// Result for `skill.record-invocation` — echoes the appended row.
@@ -995,6 +1081,12 @@ pub fn execute(layout: &OrbitLayout, request: &VerbRequest) -> Result<VerbRespon
         }
         VerbRequest::SessionDistill(args) => {
             session_distill(layout, args).map(VerbResponse::SessionDistill)
+        }
+        VerbRequest::SessionSetCard(args) => {
+            session_set_card(layout, args).map(VerbResponse::SessionSetCard)
+        }
+        VerbRequest::SessionHandover(args) => {
+            session_handover(layout, args).map(VerbResponse::SessionHandover)
         }
         VerbRequest::SkillRecordInvocation(args) => {
             skill_record_invocation(layout, args).map(VerbResponse::SkillRecordInvocation)
@@ -3043,13 +3135,30 @@ fn session_prime(layout: &OrbitLayout, args: &SessionPrimeArgs) -> Result<Sessio
     let effective = cap.min(memories.len());
     memories.truncate(effective);
 
-    let item_bound = 40 + 2 * open_specs.len() + cap.min(DEFAULT_MEMORY_CAP);
+    // Spec 2026-05-16-session-handover ac-07: surface the most-recent
+    // Session globally (no card filter at prime — per-card lookup is via
+    // `orbit session handover --card <id>`).
+    let handover = session_handover(layout, &SessionHandoverArgs::default())?.handover;
+
+    let mut item_bound = 40 + 2 * open_specs.len() + cap.min(DEFAULT_MEMORY_CAP);
+    if handover.is_some() {
+        item_bound += 1;
+    }
+
+    const HANDOVER_PREFIX: &str = "Read the handover above before any other action. ";
+    let base_next_step = "Run `orbit overview` for a single-screen project synthesis (open specs, cards-by-maturity, recent memories, most-connected card, orphans).";
+    let next_step = if handover.is_some() {
+        format!("{HANDOVER_PREFIX}{base_next_step}")
+    } else {
+        base_next_step.to_string()
+    };
 
     Ok(SessionPrimeResult {
         open_specs,
         memories,
+        handover,
         item_bound,
-        next_step: "Run `orbit overview` for a single-screen project synthesis (open specs, cards-by-maturity, recent memories, most-connected card, orphans).".into(),
+        next_step,
     })
 }
 
@@ -3147,12 +3256,29 @@ fn session_distill(
         now.clone()
     };
 
+    // Spec 2026-05-16-session-handover ac-03: card_id resolution precedence
+    // is explicit arg first, else `.orbit/.session-card` fallback, else None.
+    // No validation here — validation lives at `session.set-card` time so the
+    // hot path stays cheap. Idempotent latest-write-wins matches the rest of
+    // the distill contract.
+    let card_id = match args.card_id.as_deref() {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                read_session_card(layout, VERB)?
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        None => read_session_card(layout, VERB)?,
+    };
+
     let session = Session {
         id: session_id,
         started_at,
         ended_at: Some(now),
         distillate: args.distillate.clone(),
-        card_id: None,
+        card_id,
         labels: args.labels.clone(),
     };
     let yaml = serialise_yaml(&session).map_err(|mut e| {
@@ -3165,6 +3291,155 @@ fn session_distill(
     })?;
 
     Ok(SessionDistillResult { session })
+}
+
+/// `session.set-card` — validate `args.card_id` against the card-lookup
+/// prefix-match helper, then write the resolved canonical slug atomically
+/// to `.orbit/.session-card`. On unknown card, returns `Error::not_found`
+/// and writes nothing. See spec 2026-05-16-session-handover ac-04.
+fn session_set_card(
+    layout: &OrbitLayout,
+    args: &SessionSetCardArgs,
+) -> Result<SessionSetCardResult> {
+    const VERB: &str = "session.set-card";
+
+    let raw = args.card_id.trim();
+    if raw.is_empty() {
+        return Err(Error::malformed(VERB, "card_id must not be empty"));
+    }
+    validate_card_slug(VERB, raw)?;
+
+    // Resolve the slug. resolve_numeric_slug handles bare/padded numeric;
+    // a full slug like "0036-session-handover" requires the literal-file
+    // existence check below.
+    let resolved = match resolve_numeric_slug(VERB, &layout.cards_dir(), raw)? {
+        Some(slug) => slug,
+        None => raw.to_string(),
+    };
+    let path = layout.card_file(&resolved);
+    if !path.exists() {
+        return Err(Error::not_found(
+            VERB,
+            format!("no card matching `{raw}` (looked for {})", path.display()),
+        ));
+    }
+
+    layout.ensure_dirs().map_err(|e| {
+        Error::unavailable(VERB, format!("ensure dirs: {e}"))
+    })?;
+
+    let card_path = layout.session_card_file();
+    let mut contents = resolved.clone();
+    contents.push('\n');
+    write_atomic(&card_path, contents.as_bytes()).map_err(|mut e| {
+        e.verb = VERB.into();
+        e
+    })?;
+
+    Ok(SessionSetCardResult {
+        card_id: resolved,
+        path: card_path.display().to_string(),
+    })
+}
+
+/// `session.handover` — walk `.orbit/sessions/*.yaml`, filter by `card_id`
+/// (when provided) and `started_at >= since` (when provided), and return
+/// the session with the maximum `started_at`. Returns `handover: None`
+/// when no match — querying for an unrecorded card is a legitimate question
+/// per the `skill.recurrence` precedent. See spec 2026-05-16-session-handover
+/// ac-06.
+fn session_handover(
+    layout: &OrbitLayout,
+    args: &SessionHandoverArgs,
+) -> Result<SessionHandoverResult> {
+    const VERB: &str = "session.handover";
+
+    // Resolve a positional/long card id via the same prefix-match helper as
+    // session.set-card so the operator can write `--card 36` or `--card 0036`
+    // or the full slug.
+    let resolved_card = match args.card_id.as_deref() {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                validate_card_slug(VERB, trimmed)?;
+                let slug =
+                    match resolve_numeric_slug(VERB, &layout.cards_dir(), trimmed)? {
+                        Some(s) => s,
+                        None => trimmed.to_string(),
+                    };
+                let card_path = layout.card_file(&slug);
+                if !card_path.exists() {
+                    return Err(Error::not_found(
+                        VERB,
+                        format!(
+                            "no card matching `{trimmed}` (looked for {})",
+                            card_path.display()
+                        ),
+                    ));
+                }
+                Some(slug)
+            }
+        }
+        None => None,
+    };
+
+    let since = args.since.as_deref().map(str::trim).filter(|s| !s.is_empty());
+
+    let dir = layout.sessions_dir();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(it) => it,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(SessionHandoverResult { handover: None });
+        }
+        Err(e) => {
+            return Err(Error::unavailable(
+                VERB,
+                format!("read {}: {e}", dir.display()),
+            ));
+        }
+    };
+
+    let mut best: Option<Session> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("yaml") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).map_err(|e| {
+            Error::unavailable(VERB, format!("read {}: {e}", path.display()))
+        })?;
+        let session: Session = parse_yaml(&text).map_err(|mut e| {
+            e.verb = VERB.into();
+            e
+        })?;
+
+        if let Some(card) = &resolved_card {
+            match &session.card_id {
+                Some(c) if c == card => {}
+                _ => continue,
+            }
+        }
+        if let Some(s) = since {
+            if session.started_at.as_str() < s {
+                continue;
+            }
+        }
+        match &best {
+            Some(b) if b.started_at >= session.started_at => {}
+            _ => best = Some(session),
+        }
+    }
+
+    let handover = best.map(|s| HandoverSummary {
+        session_id: s.id,
+        card_id: s.card_id,
+        started_at: s.started_at,
+        ended_at: s.ended_at,
+        distillate: s.distillate,
+    });
+    Ok(SessionHandoverResult { handover })
 }
 
 /// `skill.record-invocation` — append one row to
@@ -4972,6 +5247,73 @@ mod tests {
     }
 
     #[test]
+    fn session_prime_includes_global_latest_handover_and_bumps_bound() {
+        // spec 2026-05-16-session-handover ac-07: prime surfaces the most-
+        // recent Session globally, bumps item_bound by +1, and prefixes the
+        // next_step sentinel.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_spec(&layout, "0001", "open one", SpecStatus::Open);
+
+        let s = Session {
+            id: "sess-X".into(),
+            started_at: "2026-05-15T12:00:00Z".into(),
+            ended_at: Some("2026-05-15T13:00:00Z".into()),
+            distillate: "what I tried, what worked".into(),
+            card_id: Some("0036-session-handover".into()),
+            labels: vec![],
+        };
+        std::fs::write(layout.session_file("sess-X"), serialise_yaml(&s).unwrap()).unwrap();
+
+        let resp = execute(
+            &layout,
+            &VerbRequest::SessionPrime(SessionPrimeArgs::default()),
+        )
+        .unwrap();
+        let VerbResponse::SessionPrime(r) = resp else { panic!() };
+
+        let h = r.handover.expect("handover should be Some");
+        assert_eq!(h.session_id, "sess-X");
+        // Bound: 40 + 2*1 + 10 (default cap.min(DEFAULT_MEMORY_CAP))
+        //        + 1 (handover) = 53
+        assert_eq!(r.item_bound, 53);
+        // next_step prefix matches the stable sentinel.
+        assert!(
+            r.next_step.starts_with("Read the handover above before any other action. "),
+            "expected sentinel prefix on next_step; got: {}",
+            r.next_step,
+        );
+    }
+
+    #[test]
+    fn session_prime_handover_absent_keeps_next_step_unchanged() {
+        // spec 2026-05-16-session-handover ac-07: when no sessions exist,
+        // handover stays None, item_bound has no +1 addend, and next_step
+        // is the un-prefixed base text.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_spec(&layout, "0001", "open one", SpecStatus::Open);
+
+        let resp = execute(
+            &layout,
+            &VerbRequest::SessionPrime(SessionPrimeArgs::default()),
+        )
+        .unwrap();
+        let VerbResponse::SessionPrime(r) = resp else { panic!() };
+
+        assert!(r.handover.is_none());
+        // 40 + 2*1 + 10 = 52 (no +1 for handover).
+        assert_eq!(r.item_bound, 52);
+        assert!(
+            !r.next_step.starts_with("Read the handover above"),
+            "unprefixed next_step expected; got: {}",
+            r.next_step,
+        );
+    }
+
+    #[test]
     fn session_prime_respects_custom_memory_cap() {
         let dir = tempdir().unwrap();
         let layout = OrbitLayout::at(dir.path());
@@ -5613,6 +5955,7 @@ mod tests {
             &SessionDistillArgs {
                 session_id: Some("sess-A".into()),
                 distillate: "first reflection".into(),
+                card_id: None,
                 labels: vec![],
             },
         )
@@ -5634,6 +5977,7 @@ mod tests {
             &SessionDistillArgs {
                 session_id: Some("sess-B".into()),
                 distillate: "v1".into(),
+                card_id: None,
                 labels: vec![],
             },
         )
@@ -5648,6 +5992,7 @@ mod tests {
             &SessionDistillArgs {
                 session_id: Some("sess-B".into()),
                 distillate: "v2".into(),
+                card_id: None,
                 labels: vec![],
             },
         )
@@ -5666,6 +6011,103 @@ mod tests {
     }
 
     #[test]
+    fn session_distill_resolves_card_id_arg_first() {
+        // spec 2026-05-16-session-handover ac-03: explicit --card / card_id
+        // arg wins over .orbit/.session-card fallback. No validation at
+        // distill time — id is opaque here.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        std::fs::write(layout.session_card_file(), "fallback-card\n").unwrap();
+
+        let r = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: Some("sess-card-A".into()),
+                distillate: "first".into(),
+                card_id: Some("explicit-card".into()),
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(r.session.card_id.as_deref(), Some("explicit-card"));
+    }
+
+    #[test]
+    fn session_distill_falls_back_to_session_card_file() {
+        // spec 2026-05-16-session-handover ac-03: when no arg is passed,
+        // read .orbit/.session-card and write the trimmed slug to Session.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        std::fs::write(layout.session_card_file(), "0036-session-handover\n").unwrap();
+
+        let r = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: Some("sess-card-B".into()),
+                distillate: "second".into(),
+                card_id: None,
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(r.session.card_id.as_deref(), Some("0036-session-handover"));
+    }
+
+    #[test]
+    fn session_distill_card_id_none_when_no_arg_and_no_file() {
+        // spec 2026-05-16-session-handover ac-03: missing .session-card and
+        // no arg → card_id stays None. Absence is normal.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let r = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: Some("sess-card-C".into()),
+                distillate: "third".into(),
+                card_id: None,
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(r.session.card_id, None);
+    }
+
+    #[test]
+    fn session_distill_overwrites_card_id_on_subsequent_call() {
+        // spec 2026-05-16-session-handover ac-03 idempotency contract:
+        // latest write wins for everything except started_at.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let _ = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: Some("sess-card-D".into()),
+                distillate: "v1".into(),
+                card_id: Some("first-card".into()),
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        let r2 = session_distill(
+            &layout,
+            &SessionDistillArgs {
+                session_id: Some("sess-card-D".into()),
+                distillate: "v2".into(),
+                card_id: Some("second-card".into()),
+                labels: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(r2.session.card_id.as_deref(), Some("second-card"));
+    }
+
+    #[test]
     fn session_distill_does_not_delete_session_id_file() {
         let dir = tempdir().unwrap();
         let layout = OrbitLayout::at(dir.path());
@@ -5678,6 +6120,7 @@ mod tests {
                 &SessionDistillArgs {
                     session_id: Some("sess-C".into()),
                     distillate: "x".into(),
+                    card_id: None,
                     labels: vec![],
                 },
             )
@@ -5703,6 +6146,7 @@ mod tests {
             &SessionDistillArgs {
                 session_id: Some("from-arg".into()),
                 distillate: "d".into(),
+                card_id: None,
                 labels: vec![],
             },
         )
@@ -5715,6 +6159,7 @@ mod tests {
             &SessionDistillArgs {
                 session_id: None,
                 distillate: "d".into(),
+                card_id: None,
                 labels: vec![],
             },
         )
@@ -5728,6 +6173,7 @@ mod tests {
             &SessionDistillArgs {
                 session_id: None,
                 distillate: "d".into(),
+                card_id: None,
                 labels: vec![],
             },
         )
@@ -5770,6 +6216,7 @@ mod tests {
             &SessionDistillArgs {
                 session_id: None,
                 distillate: "x".into(),
+                card_id: None,
                 labels: vec![],
             },
         )
@@ -5780,6 +6227,221 @@ mod tests {
             Some(v) => std::env::set_var("ORBIT_SESSION_ID", v),
             None => std::env::remove_var("ORBIT_SESSION_ID"),
         }
+    }
+
+    // ------------------------------------------------------------------------
+    // spec 2026-05-16-session-handover — set-card + handover verbs
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn session_set_card_writes_canonical_slug_atomically() {
+        // ac-04: validate the slug, then write it newline-terminated to
+        // .orbit/.session-card. Output echoes the resolved canonical slug
+        // and the path.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_card(&layout, "0036-session-handover");
+
+        let r = session_set_card(
+            &layout,
+            &SessionSetCardArgs {
+                card_id: "0036-session-handover".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(r.card_id, "0036-session-handover");
+        let on_disk = std::fs::read_to_string(layout.session_card_file()).unwrap();
+        assert_eq!(on_disk, "0036-session-handover\n");
+    }
+
+    #[test]
+    fn session_set_card_resolves_bare_numeric() {
+        // ac-04: bare-NNNN and padded NNNN both resolve via the same
+        // prefix-match helper as card.show.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_card(&layout, "0036-session-handover");
+
+        let r =
+            session_set_card(&layout, &SessionSetCardArgs { card_id: "36".into() }).unwrap();
+        assert_eq!(r.card_id, "0036-session-handover");
+
+        let r2 =
+            session_set_card(&layout, &SessionSetCardArgs { card_id: "0036".into() }).unwrap();
+        assert_eq!(r2.card_id, "0036-session-handover");
+    }
+
+    #[test]
+    fn session_set_card_unknown_card_returns_not_found() {
+        // ac-04: unknown card → Error::not_found; nothing is written.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let err = session_set_card(
+            &layout,
+            &SessionSetCardArgs { card_id: "9999".into() },
+        )
+        .unwrap_err();
+        assert_eq!(err.category, crate::error::Category::NotFound);
+        assert!(!layout.session_card_file().exists());
+    }
+
+    #[test]
+    fn session_set_card_overwrites_existing() {
+        // ac-04 + ac-10(g): mid-session re-set-card is legal and overwrites.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_card(&layout, "0036-session-handover");
+        write_card(&layout, "0001-other-card");
+
+        session_set_card(
+            &layout,
+            &SessionSetCardArgs { card_id: "36".into() },
+        )
+        .unwrap();
+        session_set_card(
+            &layout,
+            &SessionSetCardArgs { card_id: "1".into() },
+        )
+        .unwrap();
+        let on_disk = std::fs::read_to_string(layout.session_card_file()).unwrap();
+        assert_eq!(on_disk, "0001-other-card\n");
+    }
+
+    #[test]
+    fn session_handover_returns_null_when_no_sessions() {
+        // ac-06: empty sessions dir → handover: None (NOT not_found).
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+
+        let r = session_handover(&layout, &SessionHandoverArgs::default()).unwrap();
+        assert!(r.handover.is_none());
+    }
+
+    #[test]
+    fn session_handover_global_latest_across_cards() {
+        // ac-06: no --card → most-recent session across all cards.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_card(&layout, "0001-card-a");
+        write_card(&layout, "0036-session-handover");
+
+        // Plant three sessions; sess-3 is the latest.
+        let plant = |slug: &str, started: &str, card: Option<&str>| {
+            let s = Session {
+                id: slug.into(),
+                started_at: started.into(),
+                ended_at: Some(started.into()),
+                distillate: format!("hi from {slug}"),
+                card_id: card.map(String::from),
+                labels: vec![],
+            };
+            std::fs::write(
+                layout.session_file(slug),
+                serialise_yaml(&s).unwrap(),
+            )
+            .unwrap();
+        };
+        plant("sess-1", "2026-05-15T10:00:00Z", Some("0001-card-a"));
+        plant("sess-2", "2026-05-15T11:00:00Z", None);
+        plant("sess-3", "2026-05-15T12:00:00Z", Some("0036-session-handover"));
+
+        let r = session_handover(&layout, &SessionHandoverArgs::default()).unwrap();
+        let h = r.handover.expect("expected a handover");
+        assert_eq!(h.session_id, "sess-3");
+    }
+
+    #[test]
+    fn session_handover_filters_by_card_and_since() {
+        // ac-06: --card filters by card_id; --since drops rows whose
+        // started_at lexically predates the cutoff.
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_card(&layout, "0036-session-handover");
+        write_card(&layout, "0001-other-card");
+
+        let plant = |slug: &str, started: &str, card: &str| {
+            let s = Session {
+                id: slug.into(),
+                started_at: started.into(),
+                ended_at: Some(started.into()),
+                distillate: format!("hi from {slug}"),
+                card_id: Some(card.into()),
+                labels: vec![],
+            };
+            std::fs::write(
+                layout.session_file(slug),
+                serialise_yaml(&s).unwrap(),
+            )
+            .unwrap();
+        };
+        plant("sess-old", "2026-05-10T10:00:00Z", "0036-session-handover");
+        plant("sess-new", "2026-05-15T12:00:00Z", "0036-session-handover");
+        plant("sess-other", "2026-05-15T13:00:00Z", "0001-other-card");
+
+        // Card filter alone.
+        let r = session_handover(
+            &layout,
+            &SessionHandoverArgs {
+                card_id: Some("36".into()),
+                since: None,
+            },
+        )
+        .unwrap();
+        let h = r.handover.expect("expected match");
+        assert_eq!(h.session_id, "sess-new");
+
+        // Card + since filter drops sess-old.
+        let r = session_handover(
+            &layout,
+            &SessionHandoverArgs {
+                card_id: Some("0036-session-handover".into()),
+                since: Some("2026-05-12T00:00:00Z".into()),
+            },
+        )
+        .unwrap();
+        let h = r.handover.expect("expected match");
+        assert_eq!(h.session_id, "sess-new");
+
+        // Unrecorded card returns Err — caller asked for a card that
+        // doesn't exist on disk; this is the not-found path on the
+        // cards directory itself (per ac-04 resolution semantics).
+        let err = session_handover(
+            &layout,
+            &SessionHandoverArgs {
+                card_id: Some("9999-missing".into()),
+                since: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.category, crate::error::Category::NotFound);
+    }
+
+    #[test]
+    fn session_handover_null_when_card_has_no_sessions() {
+        // ac-06: --card pointing at a real card with no sessions returns
+        // handover: None (legitimate question, not an error).
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_card(&layout, "0036-session-handover");
+
+        let r = session_handover(
+            &layout,
+            &SessionHandoverArgs {
+                card_id: Some("36".into()),
+                since: None,
+            },
+        )
+        .unwrap();
+        assert!(r.handover.is_none());
     }
 
     #[test]

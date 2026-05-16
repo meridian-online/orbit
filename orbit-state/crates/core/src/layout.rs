@@ -141,6 +141,15 @@ impl OrbitLayout {
         self.root.join(".session-id")
     }
 
+    /// `.orbit/.session-card` — single-line newline-terminated card slug
+    /// written by `orbit session set-card <id>` and read by
+    /// `orbit session distill` as a fallback when no `--card` is passed.
+    /// Same shape as `.session-id`. See spec 2026-05-16-session-handover
+    /// ac-04 for the verb and ac-08 for the Stop-hook deletion contract.
+    pub fn session_card_file(&self) -> PathBuf {
+        self.root.join(".session-card")
+    }
+
     /// Create all expected subdirectories. Idempotent.
     pub fn ensure_dirs(&self) -> std::io::Result<()> {
         for dir in [
