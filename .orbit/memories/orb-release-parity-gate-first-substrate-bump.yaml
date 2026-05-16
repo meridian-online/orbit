@@ -1,0 +1,11 @@
+key: orb-release-parity-gate-first-substrate-bump
+body: |-
+  The /orb:release SKILL.md §1.4 substrate-binary parity gate refuses any release where PATH orbit's version is strictly less than the new version. For first-substrate-bump releases (where the substrate is being bumped IN this release flow), this creates a chicken-and-egg: by definition PATH orbit predates the new version, so the gate refuses BEFORE step 3 (which would reinstall the binary at the new version) can run.
+
+  Worked manually on 2026-05-16 for the 0.4.16 release shipping the typed-AC migration: bumped orbit-state/Cargo.toml + plugin.json + CHANGELOG by hand, `cargo build --release && cargo install --path orbit-state/crates/cli` to install local at 0.4.16, then `git commit -m "Bump version to 0.4.16" && git push origin main && git tag v0.4.16 && git push origin v0.4.16`. release.yml workflow ran clean (2m34s for the slowest cross-compile job).
+
+  The escape options in the SKILL.md (a/b/c) don't quite fit: (a) "rebuild and reinstall" requires the bump to already exist in Cargo.toml (chicken-and-egg); (b) "set ORBIT=<dev-binary>" needs the dev binary at the new version (same problem); (c) "--accept-binary-lag" requires honest "substrate change is forward-compatible" rationale — not true for a real schema bump.
+
+  The cleanest fix would be to relax §1.4: when substrate changed AND the new bump is committed in this same release flow, the gate should auto-resolve by running step 3 first (install the binary at the bumped version), THEN re-checking parity. As of 2026-05-16 that's not done; manual bypass is the working pattern.
+timestamp: 2026-05-16T06:20:27.732319579Z
+labels: []
