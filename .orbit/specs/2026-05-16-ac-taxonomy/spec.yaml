@@ -84,5 +84,5 @@ acceptance_criteria:
 - id: ac-15
   description: 'Wired into the framework — the meta-gate from card 0035 scenario 6. All wires are present and live: `AcceptanceCriterion::FIELDS` includes `ac_type` (ac-01); the canonical schema documentation (METHOD.md per ac-10; will move to SCHEMA.md when card 0030 ships) names the enum and its two close-time bands; `spec.close` honours the enum (ac-02); `/orb:review-pr` and `/orb:drive` read the enum (ac-08, ac-09); `/orb:design` prompts authors for `ac_type` as ACs are being shaped (ac-07); `canonicalise --reconcile` absorbs brownfield AC taxonomies via the `Transform` variant + registry mappings (ac-05 + ac-06). Without every wire, this card describes intent but the framework does not surface it — the gate fails if any wire is missing.'
   gate: true
-  checked: false
+  checked: true
   verification: 'Each citation above resolves: `grep` against the named SKILL.md or doc returns the expected reference. `orbit verify` and `orbit audit drift` exit 0 against the migrated repo. The pre-release dry-run (ac-12) confirms the reconcile path absorbs the legacy values without lossy mapping.'
