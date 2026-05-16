@@ -108,7 +108,7 @@ impl Session {
 
 impl AcceptanceCriterion {
     pub const FIELDS: &'static [&'static str] =
-        &["id", "description", "gate", "checked", "verification", "time_gated"];
+        &["id", "description", "gate", "checked", "verification", "ac_type"];
 }
 
 impl Scenario {
@@ -158,14 +158,72 @@ pub struct AcceptanceCriterion {
     pub checked: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verification: Option<String>,
-    /// `true` when the AC is legitimately expected to remain unchecked at
-    /// spec.close (post-deploy observation, operator sign-off awaiting
-    /// calendar, etc.). spec.close excludes `time_gated: true` ACs from
-    /// the unchecked-blocking set per spec 2026-05-13-spec-close-ac-preflight.
-    /// Skip-if-false on serialise keeps existing canonical output byte-
-    /// identical (the vast majority of ACs are not time-gated).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub time_gated: bool,
+    /// The kind of evidence that closes this AC. Drives spec.close's
+    /// two-band behaviour (Code/Config/Doc block close when unchecked;
+    /// Ops/Observation legitimately defer) per spec
+    /// 2026-05-16-ac-taxonomy.
+    ///
+    /// `#[serde(default)]` keeps untyped legacy corpora parseable — they
+    /// deserialise as `AcType::Code` (matches the implicit assumption
+    /// every untyped AC carried before this field shipped).
+    /// `skip_serializing_if = "AcType::is_code"` preserves byte-identical
+    /// canonical output for the dominant Code case so the migration
+    /// touches only ACs that need a non-default value.
+    #[serde(default, skip_serializing_if = "AcType::is_code")]
+    pub ac_type: AcType,
+}
+
+/// The kind of evidence that closes an AC. Drives spec.close's two-band
+/// behaviour: `Code`, `Config`, `Doc` block close when unchecked;
+/// `Ops`, `Observation` are deferrable (the spec is allowed to close with
+/// them open). Per spec 2026-05-16-ac-taxonomy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcType {
+    /// Closes on a passing test, referenced commit, or functional
+    /// artefact. The default — matches the implicit assumption every
+    /// untyped AC carried before this field shipped.
+    Code,
+    /// Closes on a config or external-system-state change verifiable by
+    /// grep, file inspection, or external query.
+    Config,
+    /// Closes on a written artefact (CLAUDE.md edit, card text, memo,
+    /// MADR).
+    Doc,
+    /// Closes on operator action with a captured log line, signoff, or
+    /// dashboard check. Legitimately deferred at spec.close.
+    Ops,
+    /// Closes on a dated window of empirical measurement (post-cutover
+    /// soak, eval-run output, training-completes-and-produces-metrics).
+    /// Legitimately deferred at spec.close.
+    Observation,
+}
+
+impl Default for AcType {
+    fn default() -> Self {
+        AcType::Code
+    }
+}
+
+impl AcType {
+    /// True when an unchecked AC of this kind blocks `spec.close`.
+    /// `Code`, `Config`, `Doc` close on artefacts that exist at commit
+    /// time (a passing test, a file diff, written prose); leaving them
+    /// unchecked is premature closure. `Ops`, `Observation` close on
+    /// events that happen after the spec's other work lands (an
+    /// operator signoff, a dated metric window); the spec is allowed to
+    /// close with them open and they appear in the deferrable-open
+    /// list returned by `spec.close`.
+    pub fn blocks_close(&self) -> bool {
+        matches!(self, Self::Code | Self::Config | Self::Doc)
+    }
+
+    /// Predicate used by `#[serde(skip_serializing_if = ...)]` on
+    /// `AcceptanceCriterion::ac_type` so the dominant Code case stays
+    /// byte-identical to today's canonical output.
+    pub fn is_code(&self) -> bool {
+        matches!(self, Self::Code)
+    }
 }
 
 // ============================================================================
@@ -522,7 +580,7 @@ unknown_field: oops
                 gate: false,
                 checked: false,
                 verification: Some("v".into()),
-                time_gated: false,
+                ac_type: AcType::Observation,
             }],
         };
         let value = serde_yaml::to_value(&spec).unwrap();
@@ -759,7 +817,7 @@ unknown_field: oops
             gate: false,
             checked: false,
             verification: Some("v".into()),
-            time_gated: true,
+            ac_type: AcType::Observation,
         };
         let value = serde_yaml::to_value(&ac).unwrap();
         let got = top_level_keys(&value);
@@ -816,7 +874,7 @@ unknown_field: oops
                 gate: true,
                 checked: false,
                 verification: Some("v1".into()),
-                time_gated: false,
+                ac_type: AcType::Code,
             }],
         };
         let yaml = serde_yaml::to_string(&spec).unwrap();
@@ -825,31 +883,74 @@ unknown_field: oops
     }
 
     #[test]
-    fn acceptance_criterion_round_trips_time_gated_true() {
-        // ac-01 verification: round-trip an AC with time_gated: true,
-        // serialise to canonical YAML, deserialise, assert byte-identical
-        // equality on the struct.
+    fn acceptance_criterion_round_trips_ac_type_observation() {
+        // spec 2026-05-16-ac-taxonomy ac-01 verification: round-trip an AC
+        // with ac_type: observation, serialise to canonical YAML,
+        // deserialise, assert byte-identical equality on the struct.
         let ac = AcceptanceCriterion {
             id: "ac-18".into(),
             description: "Post-cutover monitoring — 7-day live behaviour window".into(),
             gate: false,
             checked: false,
             verification: Some("operator dashboard review for 7 calendar days".into()),
-            time_gated: true,
+            ac_type: AcType::Observation,
         };
         let yaml = serde_yaml::to_string(&ac).unwrap();
         let parsed: AcceptanceCriterion = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(ac, parsed);
         // Sanity: the field surfaces in the serialised YAML.
-        assert!(yaml.contains("time_gated: true"), "time_gated must serialise: {yaml}");
+        assert!(yaml.contains("ac_type: observation"), "ac_type must serialise: {yaml}");
     }
 
     #[test]
-    fn acceptance_criterion_parses_legacy_yaml_without_time_gated() {
-        // ac-01 verification: existing spec.yaml content without the
-        // time_gated field parses cleanly and deserialises with time_gated: false.
+    fn acceptance_criterion_parses_legacy_yaml_without_ac_type() {
+        // spec 2026-05-16-ac-taxonomy ac-01 verification: existing spec.yaml
+        // content without the ac_type field parses cleanly and deserialises
+        // with ac_type: Code (the default).
         let legacy_yaml = "id: ac-01\ndescription: legacy\ngate: false\nchecked: false\n";
         let parsed: AcceptanceCriterion = serde_yaml::from_str(legacy_yaml).unwrap();
-        assert_eq!(parsed.time_gated, false);
+        assert_eq!(parsed.ac_type, AcType::Code);
+    }
+
+    #[test]
+    fn ac_type_round_trips_snake_case_for_every_variant() {
+        // spec 2026-05-16-ac-taxonomy ac-01 verification: every AcType
+        // variant serialises to its snake_case form and back.
+        for (variant, expected) in [
+            (AcType::Code, "code"),
+            (AcType::Config, "config"),
+            (AcType::Doc, "doc"),
+            (AcType::Ops, "ops"),
+            (AcType::Observation, "observation"),
+        ] {
+            let s = serde_yaml::to_string(&variant).unwrap();
+            assert_eq!(
+                s.trim(),
+                expected,
+                "variant {variant:?} did not serialise to expected snake_case",
+            );
+            let back: AcType = serde_yaml::from_str(expected).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn ac_type_blocks_close_two_band_split() {
+        // spec 2026-05-16-ac-taxonomy ac-01 verification: blocks_close()
+        // returns true for Code/Config/Doc and false for Ops/Observation.
+        assert!(AcType::Code.blocks_close());
+        assert!(AcType::Config.blocks_close());
+        assert!(AcType::Doc.blocks_close());
+        assert!(!AcType::Ops.blocks_close());
+        assert!(!AcType::Observation.blocks_close());
+    }
+
+    #[test]
+    fn ac_type_default_is_code() {
+        // spec 2026-05-16-ac-taxonomy ac-01 verification: the Default
+        // impl returns Code (matches the implicit assumption every
+        // untyped AC carried before this field shipped).
+        assert_eq!(AcType::default(), AcType::Code);
+        assert!(AcType::default().is_code());
     }
 }

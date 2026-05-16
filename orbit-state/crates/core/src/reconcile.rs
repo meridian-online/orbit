@@ -701,20 +701,33 @@ mod tests {
     }
 
     #[test]
-    fn inner_field_ac_type_dropped_per_registry() {
+    fn inner_field_canonical_ac_type_fires_no_reconcile_disposition() {
+        // spec 2026-05-16-ac-taxonomy ac-01: `ac_type` is now a canonical
+        // inner field on AcceptanceCriterion. A spec carrying a canonical
+        // ac_type value does NOT trigger any reconcile disposition —
+        // walk_and_classify recognises `ac_type` as a canonical inner
+        // field and recurses past it. (Any canonical-writer normalisation
+        // that may still rewrite the file is a separate concern from the
+        // reconcile registry; the registry's Drop entry at
+        // reconcile.rs:121-125 is dormant for canonical values and will
+        // be REPLACED with a Transform rule in ac-06.)
         let (_dir, layout) = fresh_layout();
-        let yaml = "id: '0001'\ngoal: g\nstatus: open\nacceptance_criteria:\n- id: ac-01\n  description: do thing\n  gate: true\n  checked: false\n  ac_type: code\n";
+        let yaml = "id: '0001'\ngoal: g\nstatus: open\nacceptance_criteria:\n- id: ac-01\n  description: do thing\n  gate: true\n  checked: false\n  ac_type: observation\n";
         let path = write_spec(&layout, "0001", yaml);
 
         let report = reconcile_all(&layout, false);
-        assert_eq!(report.rewrote, 1);
-        assert_eq!(report.dispositions.len(), 1);
-        let d = &report.dispositions[0];
-        assert_eq!(d.action, "drop");
-        assert_eq!(d.field, "acceptance_criteria[0].ac_type");
+        assert_eq!(
+            report.dispositions.len(),
+            0,
+            "canonical ac_type must not fire any reconcile disposition; got: {:?}",
+            report.dispositions
+        );
 
         let after = std::fs::read_to_string(&path).unwrap();
-        assert!(!after.contains("ac_type"), "inner ac_type not dropped:\n{after}");
+        assert!(
+            after.contains("ac_type: observation"),
+            "non-default canonical ac_type must survive a reconcile pass:\n{after}"
+        );
     }
 
     #[test]

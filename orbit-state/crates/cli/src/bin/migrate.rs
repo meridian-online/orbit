@@ -724,7 +724,7 @@ fn bd_issue_to_spec(issue: &BdRecord) -> Spec {
                             gate,
                             checked,
                             verification: None,
-                            time_gated: false,
+                            ac_type: orbit_state_core::schema::AcType::Code,
                         });
                     }
                 }

@@ -626,15 +626,16 @@ pub struct SpecUpdateResult {
 ///
 /// `forced_unchecked` lists ACs that were bypassed via the `force` flag
 /// (per spec 2026-05-13-spec-close-ac-preflight ac-03); empty when no
-/// bypass occurred. `time_gated_open` lists ACs that were deliberately
-/// deferred at close because `time_gated: true` (ac-04); empty when no
-/// time-gated ACs remained open. Both fields use
+/// bypass occurred. `deferrable_open` lists ACs of deferrable kind
+/// (`Ops`/`Observation` per `AcType::blocks_close()`) that remained
+/// unchecked at close (spec 2026-05-16-ac-taxonomy ac-02); empty when
+/// no deferrable ACs remained open. Both fields use
 /// `skip_serializing_if = "Vec::is_empty"` so happy-path responses
-/// remain byte-identical to the pre-change shape (ac-07).
+/// remain byte-identical to the pre-change shape.
 ///
 /// Note: this struct intentionally does NOT carry `deny_unknown_fields`,
 /// preserving forward-additive read compatibility for callers that
-/// cache an older response shape (ac-07).
+/// cache an older response shape.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SpecCloseResult {
     pub spec: Spec,
@@ -642,7 +643,7 @@ pub struct SpecCloseResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forced_unchecked: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub time_gated_open: Vec<String>,
+    pub deferrable_open: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1285,25 +1286,27 @@ fn spec_close(layout: &OrbitLayout, args: &SpecCloseArgs) -> Result<SpecCloseRes
         return Err(Error::conflict(VERB, format!("spec '{}' already closed", spec.id)));
     }
 
-    // AC pre-flight (spec 2026-05-13-spec-close-ac-preflight, ac-02 / ac-04).
-    // The spec's acceptance_criteria are already in memory from the parse
-    // above, so checking them is essentially free — we do this BEFORE the
+    // AC pre-flight (spec 2026-05-13-spec-close-ac-preflight, ac-02 / ac-04;
+    // generalised by spec 2026-05-16-ac-taxonomy ac-02). The spec's
+    // acceptance_criteria are already in memory from the parse above, so
+    // checking them is essentially free — we do this BEFORE the
     // unfinished-tasks check (which requires task-stream IO) so the cheaper
     // guard fails fast. The unfinished-tasks guard below is unchanged in
-    // behaviour (ac-06).
+    // behaviour (ac-06 of the precursor spec).
     //
-    // Blocking set: ACs that are unchecked AND not time-gated. Unchecked
-    // time-gated ACs are reported in the result's `time_gated_open` field
-    // but do not block close (ac-04).
+    // Blocking set: ACs that are unchecked AND of blocking kind
+    // (Code/Config/Doc per AcType::blocks_close()). Unchecked deferrable-
+    // kind ACs (Ops/Observation) are reported in the result's
+    // `deferrable_open` field but do not block close.
     let unchecked_blocking: Vec<&AcceptanceCriterion> = spec
         .acceptance_criteria
         .iter()
-        .filter(|ac| !ac.checked && !ac.time_gated)
+        .filter(|ac| !ac.checked && ac.ac_type.blocks_close())
         .collect();
-    let time_gated_open: Vec<String> = spec
+    let deferrable_open: Vec<String> = spec
         .acceptance_criteria
         .iter()
-        .filter(|ac| !ac.checked && ac.time_gated)
+        .filter(|ac| !ac.checked && !ac.ac_type.blocks_close())
         .map(|ac| ac.id.clone())
         .collect();
     if !unchecked_blocking.is_empty() && !args.force {
@@ -1321,7 +1324,7 @@ fn spec_close(layout: &OrbitLayout, args: &SpecCloseArgs) -> Result<SpecCloseRes
         return Err(Error::conflict(
             VERB,
             format!(
-                "{} unchecked AC(s) in spec '{}': {}{}",
+                "{} unchecked blocking AC(s) in spec '{}': {}{}",
                 ids.len(),
                 spec.id,
                 ids.join(", "),
@@ -1456,7 +1459,7 @@ fn spec_close(layout: &OrbitLayout, args: &SpecCloseArgs) -> Result<SpecCloseRes
         spec,
         cards_updated,
         forced_unchecked,
-        time_gated_open,
+        deferrable_open,
     })
 }
 
@@ -3420,6 +3423,7 @@ mod tests {
     use super::*;
     use crate::canonical::serialise_yaml;
     use crate::error::Category;
+    use crate::schema::AcType;
     use crate::schema::Spec;
     use tempfile::tempdir;
 
@@ -3901,7 +3905,7 @@ mod tests {
                 gate: false,
                 checked: false,
                 verification: None,
-                time_gated: false,
+                ac_type: AcType::Code,
             }],
         };
         layout.ensure_spec_dir("0001").unwrap();
@@ -5043,21 +5047,23 @@ mod tests {
         .unwrap();
     }
 
-    fn ac(id: &str, gate: bool, checked: bool, time_gated: bool) -> AcceptanceCriterion {
+    fn ac(id: &str, gate: bool, checked: bool, ac_type: AcType) -> AcceptanceCriterion {
         AcceptanceCriterion {
             id: id.into(),
             description: format!("description for {id}"),
             gate,
             checked,
             verification: None,
-            time_gated,
+            ac_type,
         }
     }
 
     #[test]
     fn spec_close_rejects_unchecked_acs() {
-        // ac-02 verification: spec.close returns Error::conflict when one
-        // or more non-time-gated ACs are unchecked, listing them by id.
+        // ac-02 verification (spec 2026-05-13-spec-close-ac-preflight,
+        // generalised by spec 2026-05-16-ac-taxonomy ac-02): spec.close
+        // returns Error::conflict when one or more blocking-kind
+        // (Code/Config/Doc) ACs are unchecked, listing them by id.
         // No files are written.
         let dir = tempdir().unwrap();
         let layout = OrbitLayout::at(dir.path());
@@ -5068,9 +5074,9 @@ mod tests {
             "0001",
             vec!["0020-orbit-state".into()],
             vec![
-                ac("ac-01", false, true, false),
-                ac("ac-02", false, false, false),
-                ac("ac-03", false, false, false),
+                ac("ac-01", false, true, AcType::Code),
+                ac("ac-02", false, false, AcType::Code),
+                ac("ac-03", false, false, AcType::Code),
             ],
         );
 
@@ -5106,8 +5112,8 @@ mod tests {
             "0001",
             vec!["0020-orbit-state".into()],
             vec![
-                ac("ac-01", true, false, false),  // unchecked gate
-                ac("ac-02", false, false, false), // unchecked non-gate
+                ac("ac-01", true, false, AcType::Code),  // unchecked gate
+                ac("ac-02", false, false, AcType::Code), // unchecked non-gate
             ],
         );
 
@@ -5128,8 +5134,9 @@ mod tests {
 
     #[test]
     fn spec_close_force_proceeds_despite_unchecked() {
-        // ac-03 verification: --force closes despite unchecked non-time-gated
-        // ACs; the bypassed AC ids land in SpecCloseResult.forced_unchecked.
+        // ac-03 verification (spec 2026-05-13-spec-close-ac-preflight):
+        // --force closes despite unchecked blocking-kind ACs; the bypassed
+        // AC ids land in SpecCloseResult.forced_unchecked.
         let dir = tempdir().unwrap();
         let layout = OrbitLayout::at(dir.path());
         layout.ensure_dirs().unwrap();
@@ -5139,9 +5146,9 @@ mod tests {
             "0001",
             vec!["0020-orbit-state".into()],
             vec![
-                ac("ac-01", false, true, false),
-                ac("ac-02", false, false, false),
-                ac("ac-03", false, false, false),
+                ac("ac-01", false, true, AcType::Code),
+                ac("ac-02", false, false, AcType::Code),
+                ac("ac-03", false, false, AcType::Code),
             ],
         );
 
@@ -5157,13 +5164,14 @@ mod tests {
             r.forced_unchecked,
             vec!["ac-02".to_string(), "ac-03".to_string()]
         );
-        assert!(r.time_gated_open.is_empty());
+        assert!(r.deferrable_open.is_empty());
     }
 
     #[test]
-    fn spec_close_time_gated_acs_do_not_block() {
-        // ac-04 verification: time-gated unchecked ACs do not block close
-        // (no --force needed) and are reported in time_gated_open.
+    fn spec_close_observation_acs_do_not_block() {
+        // spec 2026-05-16-ac-taxonomy ac-02 verification: deferrable-kind
+        // (Observation in this case) unchecked ACs do not block close
+        // (no --force needed) and are reported in deferrable_open.
         let dir = tempdir().unwrap();
         let layout = OrbitLayout::at(dir.path());
         layout.ensure_dirs().unwrap();
@@ -5173,9 +5181,9 @@ mod tests {
             "0001",
             vec!["0020-orbit-state".into()],
             vec![
-                ac("ac-01", false, true, false),
-                ac("ac-02", false, false, true), // unchecked but time-gated
-                ac("ac-03", false, false, true), // unchecked but time-gated
+                ac("ac-01", false, true, AcType::Code),
+                ac("ac-02", false, false, AcType::Observation), // unchecked but deferrable
+                ac("ac-03", false, false, AcType::Observation), // unchecked but deferrable
             ],
         );
 
@@ -5188,9 +5196,99 @@ mod tests {
         assert_eq!(r.spec.status, SpecStatus::Closed);
         assert!(r.forced_unchecked.is_empty());
         assert_eq!(
-            r.time_gated_open,
+            r.deferrable_open,
             vec!["ac-02".to_string(), "ac-03".to_string()]
         );
+    }
+
+    #[test]
+    fn spec_close_mixed_blocking_and_deferrable() {
+        // spec 2026-05-16-ac-taxonomy ac-02 verification: a spec with one
+        // unchecked blocking AC + one unchecked deferrable AC: exit=conflict,
+        // blocking list names only the blocking AC, deferrable_open is not
+        // populated (the error path returns before it would be).
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_card(&layout, "0020-orbit-state");
+        write_spec_with_acs(
+            &layout,
+            "0001",
+            vec!["0020-orbit-state".into()],
+            vec![
+                ac("ac-01", false, false, AcType::Code),        // unchecked blocking
+                ac("ac-02", false, false, AcType::Observation), // unchecked deferrable
+            ],
+        );
+
+        let err = execute(
+            &layout,
+            &VerbRequest::SpecClose(SpecCloseArgs { id: "0001".into(), force: false }),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("blocking AC"),
+            "expected 'blocking AC' wording in: {err}"
+        );
+        assert!(err.message.contains("ac-01"), "blocking AC ac-01 missing in: {err}");
+        assert!(
+            !err.message.contains("ac-02"),
+            "deferrable ac-02 must NOT appear in blocking error in: {err}"
+        );
+    }
+
+    #[test]
+    fn spec_close_doc_ac_blocks() {
+        // spec 2026-05-16-ac-taxonomy ac-02 verification: AcType::Doc is in
+        // the blocking band (Code/Config/Doc all block close).
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_card(&layout, "0020-orbit-state");
+        write_spec_with_acs(
+            &layout,
+            "0001",
+            vec!["0020-orbit-state".into()],
+            vec![
+                ac("ac-01", false, true, AcType::Code),
+                ac("ac-02", false, false, AcType::Doc), // unchecked, doc, must block
+            ],
+        );
+
+        let err = execute(
+            &layout,
+            &VerbRequest::SpecClose(SpecCloseArgs { id: "0001".into(), force: false }),
+        )
+        .unwrap_err();
+        assert!(err.message.contains("ac-02"), "doc AC ac-02 must block: {err}");
+    }
+
+    #[test]
+    fn spec_close_ops_ac_defers() {
+        // spec 2026-05-16-ac-taxonomy ac-02 verification: AcType::Ops is in
+        // the deferrable band (Ops/Observation both defer).
+        let dir = tempdir().unwrap();
+        let layout = OrbitLayout::at(dir.path());
+        layout.ensure_dirs().unwrap();
+        write_card(&layout, "0020-orbit-state");
+        write_spec_with_acs(
+            &layout,
+            "0001",
+            vec!["0020-orbit-state".into()],
+            vec![
+                ac("ac-01", false, true, AcType::Code),
+                ac("ac-02", false, false, AcType::Ops), // unchecked, ops, must defer
+            ],
+        );
+
+        let resp = execute(
+            &layout,
+            &VerbRequest::SpecClose(SpecCloseArgs { id: "0001".into(), force: false }),
+        )
+        .unwrap();
+        let VerbResponse::SpecClose(r) = resp else { panic!() };
+        assert_eq!(r.spec.status, SpecStatus::Closed);
+        assert_eq!(r.deferrable_open, vec!["ac-02".to_string()]);
     }
 
     // ========================================================================

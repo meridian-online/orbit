@@ -673,7 +673,7 @@ fn spec_close_cli_unchecked_acs_emits_conflict_envelope() {
 fn spec_close_cli_force_proceeds_with_envelope() {
     // ac-05 / ac-03: CLI `spec close --force` bypasses the unchecked-AC
     // guard and emits the canonical ok envelope with `forced_unchecked`
-    // and `time_gated_open` populated.
+    // and `deferrable_open` populated.
     let dir = tempfile::tempdir().unwrap();
     common::populate_spec_close_preflight_fixture(dir.path());
 
@@ -700,12 +700,13 @@ fn spec_close_cli_force_proceeds_with_envelope() {
 }
 
 #[test]
-fn spec_close_cli_time_gated_only_proceeds_without_force() {
-    // ac-05 / ac-04: CLI `spec close` against a spec whose sole unchecked
-    // AC is time-gated succeeds without `--force`; envelope carries
-    // `time_gated_open` and empty `forced_unchecked`.
+fn spec_close_cli_deferrable_only_proceeds_without_force() {
+    // spec 2026-05-16-ac-taxonomy ac-02 (generalising ac-05 / ac-04 of
+    // the precursor): CLI `spec close` against a spec whose sole unchecked
+    // AC is deferrable-kind (Observation) succeeds without `--force`;
+    // envelope carries `deferrable_open` and empty `forced_unchecked`.
     let dir = tempfile::tempdir().unwrap();
-    common::populate_spec_close_only_time_gated_fixture(dir.path());
+    common::populate_spec_close_only_deferrable_fixture(dir.path());
 
     let cli_bin = env!("CARGO_BIN_EXE_orbit");
     let output = Command::new(cli_bin)
@@ -717,7 +718,7 @@ fn spec_close_cli_time_gated_only_proceeds_without_force() {
     assert!(output.status.success(), "close should succeed: {}", String::from_utf8_lossy(&output.stderr));
     let stdout = String::from_utf8(output.stdout).expect("utf-8");
     let actual = stdout.trim_end_matches('\n');
-    assert_eq!(actual, common::expected_envelope_for_spec_close_only_time_gated());
+    assert_eq!(actual, common::expected_envelope_for_spec_close_only_deferrable());
 
     // State parity: spec is closed.
     let spec_text = std::fs::read_to_string(dir.path().join(".orbit/specs/0001/spec.yaml")).unwrap();

@@ -342,7 +342,7 @@ fn spec_close_mcp_unchecked_acs_emits_conflict_envelope() {
 fn spec_close_mcp_force_proceeds_with_envelope() {
     // ac-05 / ac-03: MCP `spec.close { force: true }` bypasses the
     // unchecked-AC guard and emits the canonical ok envelope with
-    // `forced_unchecked` and `time_gated_open` populated.
+    // `forced_unchecked` and `deferrable_open` populated.
     let dir = tempfile::tempdir().unwrap();
     common::populate_spec_close_preflight_fixture(dir.path());
 
@@ -364,19 +364,20 @@ fn spec_close_mcp_force_proceeds_with_envelope() {
 }
 
 #[test]
-fn spec_close_mcp_time_gated_only_proceeds_without_force() {
-    // ac-05 / ac-04: MCP `spec.close` against a spec whose sole unchecked
-    // AC is time-gated succeeds without `force`; envelope carries
-    // `time_gated_open` and empty `forced_unchecked`.
+fn spec_close_mcp_deferrable_only_proceeds_without_force() {
+    // spec 2026-05-16-ac-taxonomy ac-02 (generalising ac-05 / ac-04 of
+    // the precursor): MCP `spec.close` against a spec whose sole unchecked
+    // AC is deferrable-kind (Observation) succeeds without `force`;
+    // envelope carries `deferrable_open` and empty `forced_unchecked`.
     let dir = tempfile::tempdir().unwrap();
-    common::populate_spec_close_only_time_gated_fixture(dir.path());
+    common::populate_spec_close_only_deferrable_fixture(dir.path());
 
     let inner = run_mcp_tools_call(
         dir.path(),
         json!({ "name": "spec.close", "arguments": { "id": "0001" } }),
     );
     let envelope = inner_envelope_text(&inner);
-    assert_eq!(envelope, common::expected_envelope_for_spec_close_only_time_gated());
+    assert_eq!(envelope, common::expected_envelope_for_spec_close_only_deferrable());
 
     let spec_text = std::fs::read_to_string(dir.path().join(".orbit/specs/0001/spec.yaml")).unwrap();
     assert!(spec_text.contains("status: closed"), "spec not closed: {spec_text}");

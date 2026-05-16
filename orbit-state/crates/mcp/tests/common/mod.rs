@@ -311,15 +311,15 @@ pub fn populate_spec_close_preflight_fixture(root: &Path) {
          acceptance_criteria:\n\
          - id: ac-01\n  description: first\n  gate: false\n  checked: true\n\
          - id: ac-02\n  description: second\n  gate: false\n  checked: false\n\
-         - id: ac-03\n  description: third\n  gate: false\n  checked: false\n  time_gated: true\n",
+         - id: ac-03\n  description: third\n  gate: false\n  checked: false\n  ac_type: observation\n",
     )
     .unwrap();
 }
 
-/// Populate a fixture where only a time-gated AC remains unchecked — used
-/// to verify spec.close succeeds without `--force` when the sole open AC
-/// is `time_gated: true` (ac-04).
-pub fn populate_spec_close_only_time_gated_fixture(root: &Path) {
+/// Populate a fixture where only a deferrable-kind AC remains unchecked —
+/// used to verify spec.close succeeds without `--force` when the sole open
+/// AC is `ac_type: observation` (spec 2026-05-16-ac-taxonomy ac-02).
+pub fn populate_spec_close_only_deferrable_fixture(root: &Path) {
     let cards_dir = root.join(".orbit/cards");
     std::fs::create_dir_all(&cards_dir).unwrap();
     std::fs::write(
@@ -338,24 +338,24 @@ pub fn populate_spec_close_only_time_gated_fixture(root: &Path) {
          status: open\n\
          acceptance_criteria:\n\
          - id: ac-01\n  description: first\n  gate: false\n  checked: true\n\
-         - id: ac-02\n  description: second\n  gate: false\n  checked: false\n  time_gated: true\n",
+         - id: ac-02\n  description: second\n  gate: false\n  checked: false\n  ac_type: observation\n",
     )
     .unwrap();
 }
 
 /// Expected error envelope when `spec close 0001` runs against the
-/// pre-flight fixture (ac-02 is unchecked, non-time-gated).
+/// pre-flight fixture (ac-02 is unchecked, blocking-kind).
 pub fn expected_envelope_for_spec_close_unchecked_blocking() -> String {
     use orbit_state_core::{envelope_err_string, Error};
-    let err = Error::conflict("spec.close", "1 unchecked AC(s) in spec '0001': ac-02");
+    let err = Error::conflict("spec.close", "1 unchecked blocking AC(s) in spec '0001': ac-02");
     envelope_err_string(&err)
 }
 
 /// Expected ok envelope when `spec close --force 0001` runs against the
 /// pre-flight fixture. The closed spec includes the new fields:
-/// `forced_unchecked: [ac-02]`, `time_gated_open: [ac-03]`.
+/// `forced_unchecked: [ac-02]`, `deferrable_open: [ac-03]`.
 pub fn expected_envelope_for_spec_close_force() -> String {
-    use orbit_state_core::schema::{AcceptanceCriterion, Spec, SpecStatus};
+    use orbit_state_core::schema::{AcType, AcceptanceCriterion, Spec, SpecStatus};
     use orbit_state_core::{envelope_ok_string, SpecCloseResult, VerbResponse};
     let response = VerbResponse::SpecClose(SpecCloseResult {
         spec: Spec {
@@ -371,7 +371,7 @@ pub fn expected_envelope_for_spec_close_force() -> String {
                     gate: false,
                     checked: true,
                     verification: None,
-                    time_gated: false,
+                    ac_type: AcType::Code,
                 },
                 AcceptanceCriterion {
                     id: "ac-02".into(),
@@ -379,7 +379,7 @@ pub fn expected_envelope_for_spec_close_force() -> String {
                     gate: false,
                     checked: false,
                     verification: None,
-                    time_gated: false,
+                    ac_type: AcType::Code,
                 },
                 AcceptanceCriterion {
                     id: "ac-03".into(),
@@ -387,22 +387,22 @@ pub fn expected_envelope_for_spec_close_force() -> String {
                     gate: false,
                     checked: false,
                     verification: None,
-                    time_gated: true,
+                    ac_type: AcType::Observation,
                 },
             ],
         },
         cards_updated: vec!["0020-orbit-state".into()],
         forced_unchecked: vec!["ac-02".into()],
-        time_gated_open: vec!["ac-03".into()],
+        deferrable_open: vec!["ac-03".into()],
     });
     envelope_ok_string(&response).expect("infallible")
 }
 
 /// Expected ok envelope when `spec close 0001` runs against the
-/// only-time-gated fixture. Closure succeeds without `--force`;
-/// `time_gated_open: [ac-02]`, `forced_unchecked` empty.
-pub fn expected_envelope_for_spec_close_only_time_gated() -> String {
-    use orbit_state_core::schema::{AcceptanceCriterion, Spec, SpecStatus};
+/// only-deferrable fixture. Closure succeeds without `--force`;
+/// `deferrable_open: [ac-02]`, `forced_unchecked` empty.
+pub fn expected_envelope_for_spec_close_only_deferrable() -> String {
+    use orbit_state_core::schema::{AcType, AcceptanceCriterion, Spec, SpecStatus};
     use orbit_state_core::{envelope_ok_string, SpecCloseResult, VerbResponse};
     let response = VerbResponse::SpecClose(SpecCloseResult {
         spec: Spec {
@@ -418,7 +418,7 @@ pub fn expected_envelope_for_spec_close_only_time_gated() -> String {
                     gate: false,
                     checked: true,
                     verification: None,
-                    time_gated: false,
+                    ac_type: AcType::Code,
                 },
                 AcceptanceCriterion {
                     id: "ac-02".into(),
@@ -426,13 +426,13 @@ pub fn expected_envelope_for_spec_close_only_time_gated() -> String {
                     gate: false,
                     checked: false,
                     verification: None,
-                    time_gated: true,
+                    ac_type: AcType::Observation,
                 },
             ],
         },
         cards_updated: vec!["0020-orbit-state".into()],
         forced_unchecked: vec![],
-        time_gated_open: vec!["ac-02".into()],
+        deferrable_open: vec!["ac-02".into()],
     });
     envelope_ok_string(&response).expect("infallible")
 }

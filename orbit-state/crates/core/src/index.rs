@@ -510,8 +510,8 @@ mod tests {
     use crate::canonical::serialise_yaml;
     use crate::error::Category;
     use crate::schema::{
-        AcceptanceCriterion, Card, CardMaturity, Choice, ChoiceStatus, Memory, SchemaVersion,
-        Spec, SpecStatus,
+        AcType, AcceptanceCriterion, Card, CardMaturity, Choice, ChoiceStatus, Memory,
+        SchemaVersion, Spec, SpecStatus,
     };
     use tempfile::tempdir;
 
@@ -541,7 +541,7 @@ mod tests {
                 gate: true,
                 checked: true,
                 verification: None,
-                time_gated: false,
+                ac_type: AcType::Code,
             }],
         };
         layout.ensure_spec_dir("0001").unwrap();

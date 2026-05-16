@@ -386,11 +386,13 @@ enum SpecAction {
     },
     /// Close a spec; transactionally appends to linked cards' `specs` arrays.
     ///
-    /// Refuses to close when any non-time-gated AC remains unchecked, per
-    /// spec 2026-05-13-spec-close-ac-preflight. Pass `--force` to bypass
-    /// the AC pre-flight; bypassed AC ids surface in the structured
-    /// response under `forced_unchecked`. Time-gated ACs (declared
-    /// `time_gated: true`) never block close.
+    /// Refuses to close when any blocking-kind AC (`ac_type: code|config|doc`)
+    /// remains unchecked, per spec 2026-05-13-spec-close-ac-preflight as
+    /// generalised by spec 2026-05-16-ac-taxonomy. Pass `--force` to
+    /// bypass the AC pre-flight; bypassed AC ids surface in the
+    /// structured response under `forced_unchecked`. Deferrable-kind ACs
+    /// (`ac_type: ops|observation`) never block close — they appear in
+    /// `deferrable_open`.
     Close {
         id: String,
         /// Bypass the unchecked-AC guard. Use deliberately — bypassed AC

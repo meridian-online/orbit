@@ -486,11 +486,14 @@ On APPROVE at review-pr (interactive gates per autonomy mode passed):
      orbit spec note <spec-id> "force-close: ac-04, ac-07 unfinished — <reason>"
      orbit spec close --force <spec-id>
      ```
-   - **Time-gated ACs never block close.** ACs declared `time_gated: true`
-     in the spec (post-deploy observation windows, operator sign-off
-     awaiting calendar) are excluded from the unchecked-blocking set
-     automatically. They surface in the response's `time_gated_open`
+   - **Deferrable-kind ACs never block close.** ACs declared with a
+     deferrable `ac_type` (`ops`, `observation`) — post-deploy
+     observation windows, operator sign-off awaiting calendar, dated
+     metric windows — are excluded from the unchecked-blocking set
+     automatically. They surface in the response's `deferrable_open`
      field as a deliberate-deferral record but require no flag.
+     (Per spec 2026-05-16-ac-taxonomy: `ac_type` of `code`, `config`,
+     or `doc` blocks close; `ops` or `observation` defers.)
 
 5. **Heartbeat cleanup (full autonomy only).** Attempt `CronDelete
    drive-checkin-<spec-id>`. **Failure is non-fatal** — log
