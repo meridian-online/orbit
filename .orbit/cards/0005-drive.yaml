@@ -72,6 +72,6 @@ relations:
   type: feeds
   reason: rallies orchestrate parallel drives — each drive is one fan-out track
 references:
-- '.orbit/cards/memos/2026-05-06-rally-fan-out.md: drive types, the mid-run rule, and the contract-consumption pattern'
+- '.orbit/memos/2026-05-06-rally-fan-out.md: drive types, the mid-run rule, and the contract-consumption pattern'
 - 'Prior experience: disposition embedded in agent definition + CLAUDE.md proved effective for focus and throughput'
 notes: []

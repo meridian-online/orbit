@@ -43,6 +43,6 @@ relations:
   type: feeds
   reason: removing merge-approval ceremony has its largest payoff when paired with lighter-weight research iteration
 references:
-- .orbit/cards/memos/2026-04-29-orbit-heavy-for-research.md
+- .orbit/memos/2026-04-29-orbit-heavy-for-research.md
 - '.orbit/cards/0010-objective-functions.yaml: already covers session-start grounding, infra-drift stop-loss, and merge-on-objective from this memo''s list'
 notes: []

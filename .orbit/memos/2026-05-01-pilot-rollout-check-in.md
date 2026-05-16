@@ -31,7 +31,7 @@ The migration steps are documented in the operator playbook. Card 0017 (`/orb:se
 
 ## Where to file findings
 
-- **Bug or regression in the substrate** → memo here in `.orbit/cards/memos/`, then file a bead via `bd create -t task` and queue for the next drive.
+- **Bug or regression in the substrate** → memo here in `.orbit/memos/`, then file a bead via `bd create -t task` and queue for the next drive.
 - **Operational friction** (e.g. `bd-init.sh` UX, plugin reload required somewhere unexpected) → fold into card 0017's scope when it gets driven.
 - **Capability gap** (e.g. "I needed orbit to do X and it can't") → new card via `/orb:card`.
 - **Memo-shaped finding without a clear destination yet** → memo here.

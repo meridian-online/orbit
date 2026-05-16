@@ -21,7 +21,7 @@
 //!   specs/<id>/review-pr-<date>.md         (review artefact, tracked)
 //!   specs/<id>/interview.md                (interview sidecar, tracked)
 //!   cards/<slug>.yaml          (human-written, tracked)
-//!   cards/memos/               (memos awaiting distillation, tracked)
+//!   memos/<date>-<slug>.md     (memos awaiting distillation, tracked)
 //!   choices/<slug>.yaml        (human-written, tracked)
 //!   memories/<slug>.yaml       (substrate-written, tracked)
 //! ```
@@ -102,7 +102,7 @@ impl OrbitLayout {
     }
 
     pub fn memos_dir(&self) -> PathBuf {
-        self.cards_dir().join("memos")
+        self.root.join("memos")
     }
 
     pub fn choices_dir(&self) -> PathBuf {
@@ -186,8 +186,7 @@ impl OrbitLayout {
     }
 
     pub fn list_card_files(&self) -> std::io::Result<Vec<PathBuf>> {
-        // Cards live directly in cards/, not under cards/memos/.
-        list_yaml_files_shallow(&self.cards_dir())
+        list_yaml_files(&self.cards_dir())
     }
 
     pub fn list_choice_files(&self) -> std::io::Result<Vec<PathBuf>> {
@@ -230,12 +229,6 @@ fn list_yaml_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     }
     out.sort();
     Ok(out)
-}
-
-fn list_yaml_files_shallow(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-    // Like list_yaml_files but explicitly does NOT recurse — used for cards/
-    // where we want to skip cards/memos/.
-    list_yaml_files(dir)
 }
 
 #[cfg(test)]
@@ -347,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn list_card_files_does_not_recurse_into_memos() {
+    fn list_card_files_returns_only_files_in_cards_dir() {
         let dir = tempdir().unwrap();
         let layout = OrbitLayout::at(dir.path());
         layout.ensure_dirs().unwrap();

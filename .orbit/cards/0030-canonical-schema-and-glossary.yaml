@@ -64,5 +64,5 @@ relations:
   type: depends-on
   reason: the forthcoming pillar field on cards must land documented; this card and the four-pillars card couple at the schema layer
 references:
-- '.orbit/cards/memos/2026-05-08-card-schema-glossary.md: distillation source — gap analysis, three-section structure (card schema / spec schema / glossary), mechanical drift detection'
+- '.orbit/memos/2026-05-08-card-schema-glossary.md: distillation source — gap analysis, three-section structure (card schema / spec schema / glossary), mechanical drift detection'
 notes: []

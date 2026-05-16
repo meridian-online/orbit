@@ -24,7 +24,7 @@ acceptance_criteria:
   gate: false
   checked: true
 - id: ac-05
-  description: 'Card 0028''s stale memo reference (`.orbit/cards/memos/2026-05-08-four-pillars.md`, deleted post-distill as part of the normal distill flow) is annotated as historical in the card''s `references:` list — mirroring card 0026''s precedent (its references entry begins `historical: 2026-05-06 distillation memo ...`). The reference is preserved as a `historical:`-prefixed entry rather than removed.'
+  description: 'Card 0028''s stale memo reference (`.orbit/memos/2026-05-08-four-pillars.md`, deleted post-distill as part of the normal distill flow) is annotated as historical in the card''s `references:` list — mirroring card 0026''s precedent (its references entry begins `historical: 2026-05-06 distillation memo ...`). The reference is preserved as a `historical:`-prefixed entry rather than removed.'
   gate: false
   checked: true
 - id: ac-06

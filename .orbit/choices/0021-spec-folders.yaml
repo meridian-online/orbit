@@ -30,7 +30,7 @@ body: |
   2. **Atomic ops.** Renaming a spec id is `mv <old-id> <new-id>` for a folder; for flat it is "rename the yaml plus every sidecar matching the prefix" — an N-step op that can partially fail.
   3. **Prefix-collision risk.** Flat layout has a latent issue: ids that prefix each other (`2026-05-09-foo` vs `2026-05-09-foo-bar`) make sidecar ownership ambiguous in principle. Folders eliminate it by construction.
 
-  The argument for the flat layout was substrate uniformity — cards, choices, memories are flat directories of yamls; specs being folder-per-row breaks the symmetry. That argument is real but small: `cards/memos/` already breaks uniformity inside `cards/`, so the "everything flat" mental model is not load-bearing.
+  The argument for the flat layout was substrate uniformity — cards, choices, memories are flat directories of yamls; specs being folder-per-row breaks the symmetry. That argument is real but small: at the time of this decision, `memos/` was already nested under `cards/` — the "everything flat" mental model was not load-bearing even then.
 
   ## Considered Options
 
@@ -66,7 +66,7 @@ body: |
 
   - The hybrid keeps two distinct shapes for things that are conceptually one spec's artefacts. That's optimising for a property (one-row-per-spec in `ls`) that pure folders deliver more cleanly anyway.
   - Atomic rename / delete is the more important operational property. Drive and rally fork specs frequently; spec lifecycle ops should be one syscall.
-  - The substrate-uniformity asymmetry already exists (`cards/memos/`). Adding `specs/<id>/` is not a new break.
+  - A substrate-uniformity asymmetry already existed at decision time (`memos/` was nested under `cards/`). Adding `specs/<id>/` is not a new break.
 
   ### Migration plan (out of scope for this choice — drives a follow-up spec)
 

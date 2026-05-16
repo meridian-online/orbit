@@ -53,7 +53,7 @@ relations:
   type: feeds
   reason: code-level lean (dead code, stale comments, orphan imports) needs AST awareness; tree-sitter and ast-grep are the substrate
 references:
-- '.orbit/cards/memos/2026-05-06-codebase-mastery.md: distillation source — three pillars and Karpathy''s principles mapping'
+- '.orbit/memos/2026-05-06-codebase-mastery.md: distillation source — three pillars and Karpathy''s principles mapping'
 - 'ops/RTK.md: rtk reference (token compression layer; already in use via Claude Code hooks)'
 - 'https://github.com/quickwit-oss/tantivy: indexed full-text search (deferred to v0.2+)'
 - 'https://github.com/ast-grep/ast-grep: pattern-based AST search'

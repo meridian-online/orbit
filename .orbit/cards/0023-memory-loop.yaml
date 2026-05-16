@@ -54,5 +54,5 @@ relations:
   type: feeds
   reason: memory audit is one column in the system-wide lean ledger
 references:
-- '.orbit/cards/memos/2026-05-06-skill-memory-lifecycle.md: distillation source — memory loop section'
+- '.orbit/memos/2026-05-06-skill-memory-lifecycle.md: distillation source — memory loop section'
 notes: []

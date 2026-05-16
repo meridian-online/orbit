@@ -1,6 +1,6 @@
 ---
 name: memo
-description: Quickly jot a rough idea and file it in `.orbit/cards/memos/`
+description: Quickly jot a rough idea and file it in `.orbit/memos/`
 ---
 
 # /orb:memo
@@ -29,7 +29,7 @@ Not every idea is ready for a feature card. Sometimes you just need to jot somet
 
 ### 2. Ensure the Directory Exists
 
-Check that `.orbit/cards/memos/` exists. If not, create it (including `.orbit/cards/` if needed).
+Check that `.orbit/memos/` exists. If not, create it (including `.orbit/cards/` if needed).
 
 ### 3. Capture the Memo
 
@@ -47,7 +47,7 @@ Use **AskUserQuestion** with no suggested answers — this is freeform. The auth
 Save the memo as:
 
 ```
-.orbit/cards/memos/YYYY-MM-DD-<slug>.md
+.orbit/memos/YYYY-MM-DD-<slug>.md
 ```
 
 Where `YYYY-MM-DD` is today's date.
@@ -59,12 +59,12 @@ If a file with the same name already exists, append a numeric suffix: `YYYY-MM-D
 Report back:
 
 ```
-Memo saved: .orbit/cards/memos/YYYY-MM-DD-<slug>.md
+Memo saved: .orbit/memos/YYYY-MM-DD-<slug>.md
 ```
 
 Suggest next steps:
 - **Write more memos** if there are other ideas floating around
-- **`/orb:distill .orbit/cards/memos/YYYY-MM-DD-<slug>.md`** when ready to turn this into a feature card
+- **`/orb:distill .orbit/memos/YYYY-MM-DD-<slug>.md`** when ready to turn this into a feature card
 
 ## Integration with Other Skills
 

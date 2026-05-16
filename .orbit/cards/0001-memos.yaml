@@ -8,12 +8,12 @@ maturity: established
 scenarios:
 - name: Quick capture from a note-taking app
   given: I have a half-formed idea written in Obsidian or similar
-  when: I save it as .orbit/cards/memos/YYYY-MM-DD-slug.md
+  when: I save it as .orbit/memos/YYYY-MM-DD-slug.md
   then: it is part of the orbit workflow and discoverable alongside cards
   gate: false
 - name: Voice memo as an input path
   given: I am away from the keyboard and have an idea
-  when: I record a voice memo and the transcription (Whisper or similar) lands at .orbit/cards/memos/YYYY-MM-DD-slug.md
+  when: I record a voice memo and the transcription (Whisper or similar) lands at .orbit/memos/YYYY-MM-DD-slug.md
   then: the memo joins the same pipeline as typed memos — input medium does not affect downstream handling
   gate: true
 - name: Memo is freeform
@@ -22,7 +22,7 @@ scenarios:
   then: there is no required structure — any markdown is valid
   gate: false
 - name: Session start surfaces memos
-  given: memos exist in .orbit/cards/memos/
+  given: memos exist in .orbit/memos/
   when: a new session starts
   then: orbit prime mentions outstanding memos so the agent knows what is awaiting distillation
   gate: false
@@ -34,12 +34,13 @@ scenarios:
 - name: Memo deleted after promotion
   given: a memo has been distilled into one or more cards
   when: the cards are written and Hugh approves
-  then: the memo is deleted (or archived under cards/memos/.archive/) — memos do not accumulate post-distillation
+  then: the memo is deleted (or archived under memos/.archive/) — memos do not accumulate post-distillation
   gate: false
 specs:
 - .orbit/archive/specs/2026-04-04-memos/spec.yaml
+- .orbit/specs/2026-05-16-memos-own-folder/spec.yaml
 relations: []
 references:
 - cards are living documents — no done/ directory, git history is the audit trail
-- '.orbit/cards/memos/2026-05-06-orbit-unarchive.md: voice-memo path articulated as input substrate'
+- '.orbit/memos/2026-05-06-orbit-unarchive.md: voice-memo path articulated as input substrate'
 notes: []

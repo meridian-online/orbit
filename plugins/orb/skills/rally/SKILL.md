@@ -116,7 +116,7 @@ Parse the goal string from `$ARGUMENTS[0]` and autonomy from
 
 **Scan `.orbit/cards/` for candidate cards:**
 
-1. Read every `.orbit/cards/*.yaml` (ignore `.orbit/cards/memos/`)
+1. Read every `.orbit/cards/*.yaml`
 2. For each card, score relevance to the goal string using the card's
    `feature`, `goal`, `scenarios`, and `references`
 3. Surface the top candidates (usually 3–6) with a one-line rationale

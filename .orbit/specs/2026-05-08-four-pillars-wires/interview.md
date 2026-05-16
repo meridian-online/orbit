@@ -63,7 +63,7 @@ Document the four pillars publicly (README) and amend card 0028 so its gate scen
 - No SKILL.md citations to pillars in `/orb:distill`, `/orb:design`, `/orb:review-spec`. Pillars stay as documentation; the framework doesn't tell agents to embody outcomes.
 - No `/orb:audit` card-mode pillar check. Choice 0019's aspirational-card column is a separate concern under choice 0019's spec, not this one.
 - Card 0028's two gate scenarios that called for schema enforcement and audit flagging are amended down to documentation + relations-graph framing. The wires gate scenario is rephrased to match the realised shape.
-- Card 0028's reference to `.orbit/cards/memos/2026-05-08-four-pillars.md` (deleted post-distill) is stale and gets removed or annotated as historical.
+- Card 0028's reference to `.orbit/memos/2026-05-08-four-pillars.md` (deleted post-distill) is stale and gets removed or annotated as historical.
 
 ### Success Criteria
 
@@ -87,7 +87,7 @@ Document the four pillars publicly (README) and amend card 0028 so its gate scen
 - **Card 0028 gate scenario 2 amendment.** Current text mandates a `pillar` field with id + claim. Reword to: cards may declare pillar contribution via existing `relations: feeds` to a pillar-defining card; not enforced; surfaced as a design heuristic at distill time, optional and emergent.
 - **Card 0028 gate scenario 8 amendment.** Current wires list: CLAUDE.md/README naming, schema field, distill/design/review-spec SKILL.md citations, /orb:audit pillar-check. Reword wires to: CLAUDE.md naming, README.md naming, pillar-defining cards' relations graph (each pillar has cards that operationalise it; the relations graph is the wire). Drop schema field and audit pillar-check from the wires list.
 - **Card 0028 non-gate scenarios 4 and 5.** Currently frame distill/design as "asking the pillar question" and "surfacing the parent's pillar". Reword as: pillar awareness is agent-side context derived from the relations graph; not surfaced to the user as a mid-flow question. The author may choose to add a `relations: feeds` entry to a pillar-defining card; not required.
-- **Stale reference cleanup.** Card 0028's `references:` list cites `.orbit/cards/memos/2026-05-08-four-pillars.md` — deleted post-distill (normal state). Mirror the executive-communication-wires precedent: remove or annotate as historical.
+- **Stale reference cleanup.** Card 0028's `references:` list cites `.orbit/memos/2026-05-08-four-pillars.md` — deleted post-distill (normal state). Mirror the executive-communication-wires precedent: remove or annotate as historical.
 - **Card 0028 yaml round-trip.** Amending scenarios edits the yaml directly; must round-trip through the canonical writer (`orbit canonicalise` or similar) to pass `orbit verify`.
 
 ### Open Questions

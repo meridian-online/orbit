@@ -1,0 +1,70 @@
+id: 2026-05-16-memos-own-folder
+goal: Relocate memos to live at `.orbit/memos/` (a sibling of `.orbit/cards/`, not nested under it) — flat layout, date-slug filename unchanged. Substrate ontology then reads correctly (memos are inputs *to* cards, not part of cards). The naming-convention discussion (NNNN vs date-slug for cards and choices) was settled in favour of keeping NNNN — only the memo relocation is in scope.
+cards:
+- 0001-memos
+- 0008-consolidated-orbit-artefact-folder
+status: open
+labels:
+- spec
+acceptance_criteria:
+- id: ac-01
+  description: 'orbit-state code: `OrbitLayout::memos_dir()` at `orbit-state/crates/core/src/layout.rs:104-106` returns `self.root.join("memos")` instead of `self.cards_dir().join("memos")`. `ensure_dirs()` (lines 145-159) creates the new sibling path. The `list_yaml_files_shallow` wrapper at `layout.rs:235-239` is **removed** as dead code — it is a pass-through to `list_yaml_files` already (both functions do a single `read_dir`, neither recurses); the wrapper''s only reason to exist was documentary. Its single caller `list_card_files` at `layout.rs:188-191` is inlined to call `list_yaml_files` directly. The misleading comments at `layout.rs:189` and `layout.rs:237` are removed. The layout ascii tree at `layout.rs:24` is updated to show `memos/` as a top-level child of `.orbit/`. The `verify.rs:105` comment is updated. The unit test `list_card_files_does_not_recurse_into_memos` at `layout.rs:350` is renamed (e.g. to `list_card_files_returns_only_cards`) or rewritten to assert the new sibling layout.'
+  gate: true
+  checked: true
+  verification: '`cargo test --manifest-path orbit-state/Cargo.toml` passes (unit + integration + parity). The `ensure_dirs` test at `layout.rs:280` asserts `layout.memos_dir()` resolves under `<root>/memos`. `grep -n "list_yaml_files_shallow" orbit-state/crates/core/src/layout.rs` returns nothing.'
+- id: ac-02
+  description: The three existing memos in this repo (`2026-04-29-rally-cold-fork-degradation.md`, `2026-05-01-pilot-rollout-check-in.md`, `2026-05-08-cross-reference-integrity-gap.md`) move from `.orbit/cards/memos/` to `.orbit/memos/` via `git mv` in a single commit so git rename detection picks them up cleanly. The legacy directory is removed entirely (no leftover `.gitkeep`). Bodies of the moved memos are swept for any literal `.orbit/cards/memos/` string and rewritten to `.orbit/memos/` for substrate consistency — currently only `2026-05-01-pilot-rollout-check-in.md:34` carries such a string in instructional prose, but the sweep is exhaustive.
+  gate: false
+  checked: true
+  verification: '`git ls-files .orbit/cards/memos/` returns nothing. `git ls-files .orbit/memos/` lists three files. `git log --follow .orbit/memos/2026-05-01-pilot-rollout-check-in.md` traces unbroken through the rename. `grep -n "cards/memos" .orbit/memos/*.md` returns nothing.'
+- id: ac-03
+  description: '`/orb:memo` skill at `plugins/orb/skills/memo/SKILL.md` rewrites all `.orbit/cards/memos/` references to `.orbit/memos/`: description (line 3), directory-existence check (line 32), path template (line 50), confirmation message (line 62), `/orb:distill` next-step hint (line 67).'
+  gate: false
+  checked: true
+  verification: '`grep -n "cards/memos" plugins/orb/skills/memo/SKILL.md` returns nothing.'
+- id: ac-04
+  description: '`/orb:distill` skill at `plugins/orb/skills/distill/SKILL.md` rewrites all `.orbit/cards/memos/` references to `.orbit/memos/`: input example (line 17), cleanup section (lines 170 and 172), related-input source list (line 183).'
+  gate: false
+  checked: true
+  verification: '`grep -n "cards/memos" plugins/orb/skills/distill/SKILL.md` returns nothing.'
+- id: ac-05
+  description: '`/orb:design` (`plugins/orb/skills/design/SKILL.md:63`), `/orb:rally` (`plugins/orb/skills/rally/SKILL.md:119`), and `/orb:implement` (`plugins/orb/skills/implement/SKILL.md:230`) rewrite their `.orbit/cards/memos/` references to `.orbit/memos/`. Rally''s "ignore `.orbit/cards/memos/`" comment is removed — once memos are siblings, the comment describes nothing real (the surrounding `.orbit/cards/*.yaml` glob never matched memos anyway, since memos are `.md`).'
+  gate: false
+  checked: true
+  verification: '`grep -rn "cards/memos" plugins/orb/skills/` returns nothing.'
+- id: ac-06
+  description: '`.orbit/METHOD.md:22` (vocabulary table memo row) and `plugins/orb/skills/setup/METHOD.md:22` (mirror copy) update the memo `Where` column from the nested path to the sibling path. The two files remain byte-equal per existing discipline (see memory `session-close-2026-05-11-spec-folders-shipped`).'
+  gate: false
+  checked: true
+  verification: '`diff .orbit/METHOD.md plugins/orb/skills/setup/METHOD.md` shows no differences. `grep "memos" .orbit/METHOD.md` shows the sibling path only.'
+- id: ac-07
+  description: '`README.md` rewrites its four `.orbit/cards/memos/` references to `.orbit/memos/`: `/memo` description (line 55), walkthrough example (lines 65 and 67), skills table row (line 126).'
+  gate: false
+  checked: true
+  verification: '`grep -n "cards/memos" README.md` returns nothing.'
+- id: ac-08
+  description: 'Every live card under `.orbit/cards/*.yaml` rewrites `.orbit/cards/memos/` to `.orbit/memos/`. Two distinct edit types: (a) **scenario-level** edits (live behaviour the card describes) on cards 0001 (scenarios 1, 2, 4, 6), 0002 (scenarios at lines 10-11), 0008 (scenario 5 at line 32), and 0017 (setup scenario at line 22); (b) **references-level** edits (historical distillation-source citations) on cards 0005, 0006, 0009, 0010, 0013, 0014, 0015, 0016, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, 0029, 0030, 0031, plus the references entries on 0001, 0002, 0008, 0017. Twenty-three card files total. The cited memo files mostly no longer exist on disk (deleted post-distillation per `/orb:distill`); the path rewrite is for substrate consistency, not a live-file lookup.'
+  gate: false
+  checked: true
+  verification: '`grep -rln "cards/memos" .orbit/cards/*.yaml` returns nothing. Every card still parses (`orbit card list` exits 0). The 23 enumerated cards each have at least one hit pre-edit and zero hits post-edit.'
+- id: ac-09
+  description: 'Live (non-archive) specs, choice, and memory files rewrite `.orbit/cards/memos/` to `.orbit/memos/`. Files in scope: `.orbit/specs/2026-05-08-executive-communication-wires/spec.yaml`, `.orbit/specs/2026-05-08-executive-communication-wires/interview.md`, `.orbit/specs/2026-05-08-four-pillars-wires/spec.yaml`, `.orbit/specs/2026-05-08-four-pillars-wires/interview.md`, `.orbit/specs/2026-05-10-card-id-field-and-conventions/spec.yaml`, `.orbit/choices/0021-spec-folders.yaml`, `.orbit/memories/four-pillars.yaml`, `.orbit/memories/fan-out-first-class.yaml`. These are frozen-at-authoring-time evidence; rewriting follows the 2026-04-20 precedent ("the migration commit is the audit record"). Cited memo files may no longer exist on disk — the rewrite is for substrate consistency.'
+  gate: false
+  checked: true
+  verification: '`grep -rln "cards/memos" .orbit/specs/2026-05-08-* .orbit/specs/2026-05-10-* .orbit/choices/ .orbit/memories/` returns nothing. Every touched file still parses (`orbit spec show`, `orbit choice show`, `orbit memory show` for each).'
+- id: ac-10
+  description: 'Repo-wide grep gate with an explicit allow-list mirroring the 2026-04-20-orbit-artefact-folder precedent (archive spec ac-13). Command: `git ls-files -z | xargs -0 grep -l "cards/memos" 2>/dev/null` returns ONLY files in the allow-list. **Allow-list (hits expected and accepted):** (a) `.orbit/archive/**` — canonically frozen; (b) `CHANGELOG.md` — historical entries describing past behaviour and the new entry describing this migration itself; (c) `.orbit/specs/2026-05-16-memos-own-folder/spec.yaml` — this spec names both legacy and new paths to describe the migration; (d) `.orbit/specs/2026-05-16-memos-own-folder/review-spec-*.md` (cycle-1 and any cycle-N) — review artefacts quote legacy paths in findings. **Anything else is a bug.** `cargo test --manifest-path orbit-state/Cargo.toml` passes (unit + integration + parity).'
+  gate: true
+  checked: true
+  verification: Run the grep command above and visually confirm every hit falls under (a)-(d). `cargo test --manifest-path orbit-state/Cargo.toml` exits 0 with no new failures versus `main`.
+- id: ac-11
+  description: Release the next orbit version via the `/orb:release` flow — bump `orbit-state/Cargo.toml`, `Cargo.lock`, `plugins/orb/.claude-plugin/plugin.json`; add a CHANGELOG entry naming the relocation; commit; push; `git tag v<new_version> && git push origin v<new_version>` per memory `orb-release-skill-missing-tag-push`; wait for the release.yml workflow to publish the brew tap update. This is a **pre-merge gate** — it lands the release before this spec closes. The spec can close with ac-12 (beelink smoke) still unchecked because ac-12 is time-gated.
+  gate: false
+  checked: false
+  verification: '`gh release view v<new_version>` shows the release published. `git tag --list v<new_version>` confirms the tag exists locally and on origin. The CHANGELOG entry for the new version names the memos relocation explicitly.'
+- id: ac-12
+  description: 'Beelink smoke confirming the released binary picks up the relocation. `brew upgrade meridian-online/tap/orbit` on the beelink installs the new tag; `/home/linuxbrew/.linuxbrew/bin/orbit --version` reports it; `orbit session prime --root /home/hugh/github/hughcameron/orbit` returns an envelope listing three memos resolved from `.orbit/memos/`; `orbit overview --root /home/hugh/github/hughcameron/orbit` lists memos under the sibling path. This AC is time-gated: brew tap propagation has its own latency and the smoke is a post-merge follow-up. ac-12''s `checked:` is flipped to `true` in a small follow-up commit once verified.'
+  gate: false
+  checked: false
+  verification: 'Beelink terminal output captured in a follow-up commit message or memory: `brew upgrade` line, `orbit --version` line, `orbit session prime` envelope showing memo count > 0 with paths under `.orbit/memos/`.'
+  time_gated: true

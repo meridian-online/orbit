@@ -14,7 +14,7 @@ Extract structured feature cards from source material. Takes a memo, a document,
 ```
 
 Where `<scope>` is one of:
-- **A file path** — `.orbit/cards/memos/2026-04-07-progress.md` or `.orbit/specs/topic/interview.md`
+- **A file path** — `.orbit/memos/2026-04-07-progress.md` or `.orbit/specs/topic/interview.md`
 - **A directory path** — `docs/` or `.` (the whole project)
 - **A natural-language description** — `"the readme, docs, git history and specs"`
 
@@ -167,9 +167,9 @@ Distill complete:
   Dropped: M card(s) during review
 ```
 
-4. **Clean up source memos.** If the scope included files from `.orbit/cards/memos/`, delete each consumed memo:
+4. **Clean up source memos.** If the scope included files from `.orbit/memos/`, delete each consumed memo:
    ```bash
-   git rm .orbit/cards/memos/<memo-file>
+   git rm .orbit/memos/<memo-file>
    ```
    Only delete memos that produced at least one card in the approved set. The cards' `references` field preserves provenance; git history preserves the original content.
 
@@ -180,7 +180,7 @@ If any cards were written, suggest next step: `/orb:design` to refine a card int
 ## Integration with Other Skills
 
 - **`/orb:card`** — distill produces the same YAML format, so distilled cards are interchangeable with interview-created cards
-- **`.orbit/cards/memos/`** — the primary input source; consumed memos are deleted after card extraction (§5 step 4). Git history preserves the original content
+- **`.orbit/memos/`** — the primary input source; consumed memos are deleted after card extraction (§5 step 4). Git history preserves the original content
 - **`/orb:design`** — the natural next step after distilling a card
 - **`/orb:discovery`** — interview.md files from discovery sessions are valid distill inputs
 

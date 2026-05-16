@@ -227,7 +227,7 @@ channels:
 |-----------------------------------------------|----------------------------------------------------------------------------|
 | Blocking detour (must resolve before this AC) | sub-task under current spec via `orbit task open --spec-id <current>` (above) |
 | Follow-up work that does NOT block this AC    | new spec via `/orb:spec`, or a memory note via `orbit memory remember <key> "<finding>"` |
-| Product-direction question (capability-level) | memo at `.orbit/cards/memos/YYYY-MM-DD-<slug>.md` for `/orb:distill` later |
+| Product-direction question (capability-level) | memo at `.orbit/memos/YYYY-MM-DD-<slug>.md` for `/orb:distill` later |
 
 **Never suggest "open a follow-up card."** Cards describe capabilities,
 not work items. The agent doesn't know whether a finding warrants a new

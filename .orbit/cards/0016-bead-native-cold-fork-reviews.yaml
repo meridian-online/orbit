@@ -72,5 +72,5 @@ references:
 - 'plugins/orb/skills/review-spec/SKILL.md: current rules calibrated for spec.yaml; need substrate update'
 - 'plugins/orb/skills/review-pr/SKILL.md: same'
 - 'plugins/orb/scripts/parse-acceptance.sh: the shared bead acceptance parser /orb:implement uses today'
-- '.orbit/cards/memos/2026-04-20-specs-array-prose-enforcement-gap.md: dissolves under bead-native drive'
+- '.orbit/memos/2026-04-20-specs-array-prose-enforcement-gap.md: dissolves under bead-native drive'
 notes: []

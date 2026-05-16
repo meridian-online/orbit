@@ -1,5 +1,5 @@
 key: fan-out-first-class
-body: 'Fan-out should be a first-class orbit concept, not a rally-internal pattern. Three levels: spec-level (rally), drive-internal (per-AC, speculative, tree-of-thoughts within one drive), research-mode (discovery/distill/researcher parallel investigation). Fan-out is the load-bearing mechanism for pillar 4 (long-running R&D): full-session-of-work = fan-out depth × per-agent autonomy time × durable state. finetype''s cron loop failed because it was depth-without-breadth. Default sequential; fan-out is opt-in declared at design time. Memo: .orbit/cards/memos/2026-05-08-fan-out-first-class.md.'
+body: 'Fan-out should be a first-class orbit concept, not a rally-internal pattern. Three levels: spec-level (rally), drive-internal (per-AC, speculative, tree-of-thoughts within one drive), research-mode (discovery/distill/researcher parallel investigation). Fan-out is the load-bearing mechanism for pillar 4 (long-running R&D): full-session-of-work = fan-out depth × per-agent autonomy time × durable state. finetype''s cron loop failed because it was depth-without-breadth. Default sequential; fan-out is opt-in declared at design time. Memo: .orbit/memos/2026-05-08-fan-out-first-class.md.'
 timestamp: 2026-05-08T05:43:42.516155801Z
 labels:
 - pillars

@@ -1,0 +1,25 @@
+spec_id: 2026-05-16-memos-own-folder
+card_path: /home/hugh/github/hughcameron/orbit/.orbit/cards/0001-memos.yaml
+autonomy: full
+iteration: 1
+stage: implement
+review_spec_cycle: 3
+review_spec_date: 2026-05-16
+review_pr_cycle: 0
+review_pr_date: null
+iteration_history:
+- cycle: 1
+  stage: review-spec
+  verdict: REQUEST_CHANGES
+  date: 2026-05-16
+  notes: HIGH × 2 on AC-09 enumeration gap and missing memo-body sweep; MEDIUM × 4 (AC-01 wrapper rationale wrong, AC-06 conventions check, AC-10 release coupling, CHANGELOG allow-list); LOW × 1 cycle suffix.
+- cycle: 2
+  stage: review-spec
+  verdict: REQUEST_CHANGES
+  date: 2026-05-16
+  notes: Prose nits in ac-08 — count off-by-one (22 → 23) and card 0001 scenario index (5 → 6).
+- cycle: 3
+  stage: review-spec
+  verdict: APPROVE
+  date: 2026-05-16
+  notes: Single residual LOW on verification-line count drift fixed inline post-review.

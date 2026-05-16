@@ -19,7 +19,7 @@ scenarios:
 - name: Greenfield setup creates .orbit/ layout and initialises state in one pass
   given: a project with no .orbit/ directory and no prior orbit artefacts
   when: the user runs /orb:setup
-  then: setup creates .orbit/cards/, .orbit/choices/, .orbit/specs/, .orbit/cards/memos/; runs orbit init to scaffold the SQLite index and ship .orbit/.gitignore; writes `.orbit/METHOD.md` (canonical orbit method overview) and ensures CLAUDE.md @-imports it — all in a single idempotent pass
+  then: setup creates .orbit/cards/, .orbit/choices/, .orbit/specs/, .orbit/memos/; runs orbit init to scaffold the SQLite index and ship .orbit/.gitignore; writes `.orbit/METHOD.md` (canonical orbit method overview) and ensures CLAUDE.md @-imports it — all in a single idempotent pass
   gate: false
 - name: METHOD.md drift triggers prompt on re-run, never silent overwrite
   given: a project where /orb:setup has been run, then either the canonical METHOD.md (in the plugin) or the project's `.orbit/METHOD.md` has been edited
@@ -66,5 +66,5 @@ relations:
 references:
 - 'plugins/orb/skills/setup/SKILL.md: current setup skill — handles orbit/ layout and CLAUDE.md vocabulary; needs orbit-state awareness rewrite'
 - '.orbit/choices/0015-orbit-state-architecture.md: substrate decision that makes setup-without-orbit-state a non-state'
-- '.orbit/cards/memos/2026-05-06-orbit-state.md: the .orbit/ layout setup creates'
+- '.orbit/memos/2026-05-06-orbit-state.md: the .orbit/ layout setup creates'
 notes: []

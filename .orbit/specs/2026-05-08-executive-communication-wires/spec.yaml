@@ -32,7 +32,7 @@ acceptance_criteria:
   gate: false
   checked: true
 - id: ac-07
-  description: Stale references in card 0026 audited. The deleted memo reference (.orbit/cards/memos/2026-05-06-executive-communication-framework.md) is removed or annotated as historical. The `ops decision 0029` reference is sanity-checked for sensitive content (orbit is a public repo); kept if benign, otherwise abstracted.
+  description: Stale references in card 0026 audited. The deleted memo reference (.orbit/memos/2026-05-06-executive-communication-framework.md) is removed or annotated as historical. The `ops decision 0029` reference is sanity-checked for sensitive content (orbit is a public repo); kept if benign, otherwise abstracted.
   gate: false
   checked: true
 - id: ac-08

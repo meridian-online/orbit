@@ -47,5 +47,5 @@ relations:
 references:
 - '.orbit/discovery/orbit-autonomy.md: §Project objective functions become first-class'
 - '.orbit/discovery/beads-flow.md: §Project objective function — top-level bead or pinned bd remember entry'
-- '.orbit/cards/memos/2026-04-29-orbit-heavy-for-research.md: session-start grounded in the outcome metric'
+- '.orbit/memos/2026-04-29-orbit-heavy-for-research.md: session-start grounded in the outcome metric'
 notes: []

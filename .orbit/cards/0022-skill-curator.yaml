@@ -51,6 +51,6 @@ relations:
   type: feeds
   reason: the curator is one column in the system-wide lean ledger — specifically the skill column
 references:
-- '.orbit/cards/memos/2026-05-06-skill-memory-lifecycle.md: distillation source — artefact-level lifecycle'
-- '.orbit/cards/memos/2026-05-06-two-artefact-contract-and-curator-lifecycle.md: the original curator pattern, adopted from hermes-agent (NousResearch)'
+- '.orbit/memos/2026-05-06-skill-memory-lifecycle.md: distillation source — artefact-level lifecycle'
+- '.orbit/memos/2026-05-06-two-artefact-contract-and-curator-lifecycle.md: the original curator pattern, adopted from hermes-agent (NousResearch)'
 notes: []

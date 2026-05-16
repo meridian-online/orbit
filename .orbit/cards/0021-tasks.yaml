@@ -50,6 +50,6 @@ relations:
   type: depends-on
   reason: tasks are an orbit-state table — append-only JSONL persisted alongside the spec body
 references:
-- '.orbit/cards/memos/2026-05-06-rally-fan-out.md: tasks-within-drives section, mapping to Claude Code TaskList'
+- '.orbit/memos/2026-05-06-rally-fan-out.md: tasks-within-drives section, mapping to Claude Code TaskList'
 - 'https://code.claude.com/docs/en/tools-reference: Claude Code TaskList tool reference'
 notes: []

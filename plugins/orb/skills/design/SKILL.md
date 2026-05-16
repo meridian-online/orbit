@@ -60,7 +60,7 @@ If no orphans are found, move on silently.
 
 **Then load broader evidence:**
 
-1. Check `.orbit/cards/memos/` for related memos
+1. Check `.orbit/memos/` for related memos
 2. If the card has `references`, read them — these may contain empirical results
 3. Search the codebase for experiments, sweeps, or benchmarks related to the card's topic
 

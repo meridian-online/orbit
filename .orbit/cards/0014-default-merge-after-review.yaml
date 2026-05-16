@@ -40,7 +40,7 @@ relations:
   type: feeds
   reason: the "Full autonomy drive" scenario in 0005 currently says "pausing only for PR merge" — this card removes that pause
 references:
-- .orbit/cards/memos/2026-04-29-merge-approval-ceremony.md
+- .orbit/memos/2026-04-29-merge-approval-ceremony.md
 - .orbit/cards/0007-drive-forked-reviews.yaml
 - .orbit/cards/0005-drive.yaml
 notes: []

@@ -10,7 +10,7 @@ acceptance_criteria:
   gate: true
   checked: true
 - id: ac-02
-  description: 'A one-shot canonicalise pass over `.orbit/cards/*.yaml` adds `id: <full-slug>` as the first field of every existing card. Idempotent. Verification: every file under `.orbit/cards/` (excluding `cards/memos/`) starts with an `id:` line whose value matches its filename slug. `orbit verify` returns clean post-pass.'
+  description: 'A one-shot canonicalise pass over `.orbit/cards/*.yaml` adds `id: <full-slug>` as the first field of every existing card. Idempotent. Verification: every file under `.orbit/cards/` starts with an `id:` line whose value matches its filename slug. `orbit verify` returns clean post-pass.'
   gate: true
   checked: true
 - id: ac-03

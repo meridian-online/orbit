@@ -61,5 +61,5 @@ relations:
   type: feeds
   reason: grounds in pillar 1 (executive interaction) — design sessions that drift to implementation burn the author's attention budget on questions they cannot usefully answer
 references:
-- '.orbit/cards/memos/2026-05-08-design-session-implementation-drift.md: distillation source — failure mode, design-space gate, three modes, implementation-question filter, user-voice prose primitive'
+- '.orbit/memos/2026-05-08-design-session-implementation-drift.md: distillation source — failure mode, design-space gate, three modes, implementation-question filter, user-voice prose primitive'
 notes: []

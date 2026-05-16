@@ -34,6 +34,6 @@ scenarios:
 specs: []
 relations: []
 references:
-- .orbit/cards/memos/2026-04-28-playbooks-reusable-investigation-patterns.md
+- .orbit/memos/2026-04-28-playbooks-reusable-investigation-patterns.md
 - 'Nightingale subtype-collapse arc: corpus counts → value-shape Jaccard → confident-wrong check → raw softmax top-k'
 notes: []

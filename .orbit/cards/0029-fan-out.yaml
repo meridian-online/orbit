@@ -68,6 +68,6 @@ relations:
   type: feeds
   reason: drives consume the primitive directly — drive-internal fan-out is the level this card adds beyond rally
 references:
-- '.orbit/cards/memos/2026-05-08-fan-out-first-class.md: distillation source — three levels, anti-patterns, coupling to the four pillars'
+- '.orbit/memos/2026-05-08-fan-out-first-class.md: distillation source — three levels, anti-patterns, coupling to the four pillars'
 - '/home/hugh/reference/agentic/fan-out.md: technical reference — six fan-out mechanisms (sub-agent / custom-agent / fork / worktree / agent-team / headless), composition patterns'
 notes: []

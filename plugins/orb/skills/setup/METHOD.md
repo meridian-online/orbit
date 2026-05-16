@@ -19,7 +19,7 @@ Variants:
 | Artefact   | Id shape          | Where                                            | What it is                                                                              |
 |------------|-------------------|--------------------------------------------------|-----------------------------------------------------------------------------------------|
 | Card       | `NNNN-slug`       | `.orbit/cards/NNNN-<slug>.yaml`                  | A capability the product provides. User language. Never closed — updated in place.      |
-| Memo       | dated filename    | `.orbit/cards/memos/<date>-<slug>.md`            | Raw idea awaiting distillation. Freeform markdown. Deleted after promotion to a card.   |
+| Memo       | dated filename    | `.orbit/memos/<date>-<slug>.md`            | Raw idea awaiting distillation. Freeform markdown. Deleted after promotion to a card.   |
 | Choice     | `NNNN-slug`       | `.orbit/choices/NNNN-<slug>.yaml`                | MADR record of an architectural choice — *how* a capability is implemented.             |
 | Spec       | `YYYY-MM-DD-slug` | `.orbit/specs/<date>-<slug>/spec.yaml`           | A discrete unit of work with numbered acceptance criteria. One card may spawn many.     |
 | Interview  | (sidecar of spec) | `.orbit/specs/<date>-<slug>/interview.md`        | Q&A record from a `/design` or `/discovery` session. Feeds the spec.                    |

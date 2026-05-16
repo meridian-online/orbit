@@ -52,7 +52,7 @@ This isn't ceremony. It's a division of labour that plays to each side's strengt
 Every piece of work in orbit becomes a **card**: a short YAML file describing who needs something, why it matters, and what they'd expect to see. Cards are the intake layer, and there's no single "right" way to produce one.
 
 - **`/card`**: you know what you want. Answer a few questions, get a card.
-- **`/memo`**: jot a rough idea as freeform markdown and have it filed in `.orbit/cards/memos/`. The session hook will surface outstanding memos until you distill them.
+- **`/memo`**: jot a rough idea as freeform markdown and have it filed in `.orbit/memos/`. The session hook will surface outstanding memos until you distill them.
 - **`/distill`**: you've got some reference material (meeting notes, research or an existing project). Distill extracts candidate cards from it and presents them as a batch for your review.
 - **`/discovery`**: the idea is big and new. A Socratic Q&A session explores it until a card can be written.
 
@@ -62,9 +62,9 @@ Whichever door you come in, you land in the same place: a card ready for `/desig
 
 Here's what it looks like to take a rough idea through to a merged change.
 
-You've been thinking about adding progress indicators to a long-running pipeline. You run `/memo` and jot down the gist: *"Analysts can't tell if jobs are stuck or just slow. Need visible progress."* It's filed in `.orbit/cards/memos/` automatically.
+You've been thinking about adding progress indicators to a long-running pipeline. You run `/memo` and jot down the gist: *"Analysts can't tell if jobs are stuck or just slow. Need visible progress."* It's filed in `.orbit/memos/` automatically.
 
-Next session, the hook surfaces it: *"1 outstanding memo in .orbit/cards/memos/"*. You run `/distill .orbit/cards/memos/2026-04-07-pipeline-progress.md` and the agent extracts a candidate card, showing it to you for approval. You tweak a scenario, approve it, and it's saved as `.orbit/cards/0004-pipeline-progress.yaml`.
+Next session, the hook surfaces it: *"1 outstanding memo in .orbit/memos/"*. You run `/distill .orbit/memos/2026-04-07-pipeline-progress.md` and the agent extracts a candidate card, showing it to you for approval. You tweak a scenario, approve it, and it's saved as `.orbit/cards/0004-pipeline-progress.yaml`.
 
 Now `/design .orbit/cards/0004-pipeline-progress.yaml` opens a focused session. The agent has already searched prior specs and surfaces what's relevant (*"earlier work found stdout flushing is the bottleneck; treating that as a constraint"*) and asks only the questions evidence can't answer. Four questions later, you have an interview.
 
@@ -123,7 +123,7 @@ flowchart LR
 | `/setup` | Set up a project: directories, CLAUDE.md, first card |
 | `/card` | Write a feature card with scenarios |
 | `/discovery` | Explore a vague idea through Socratic Q&A |
-| `/memo` | Quickly jot a rough idea and file it in `.orbit/cards/memos/` |
+| `/memo` | Quickly jot a rough idea and file it in `.orbit/memos/` |
 | `/distill` | Extract feature cards from notes, documents, or an existing project |
 | `/design` | Refine a card into technical decisions and constraints |
 | `/spec` | Generate a structured spec from an interview |

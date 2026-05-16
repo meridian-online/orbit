@@ -40,7 +40,7 @@ relations:
   type: depends-on
   reason: the agent substrate is orbit-state — without it, the contract has no implementation
 references:
-- '.orbit/cards/memos/2026-05-06-orbit-unarchive.md: load-bearing principle'
-- '.orbit/cards/memos/2026-05-06-two-artefact-contract-and-curator-lifecycle.md: original distillation source — the constitutional rule'
+- '.orbit/memos/2026-05-06-orbit-unarchive.md: load-bearing principle'
+- '.orbit/memos/2026-05-06-two-artefact-contract-and-curator-lifecycle.md: original distillation source — the constitutional rule'
 - '.orbit/choices/0014-orbit-unarchive.md: reverses ops 0031; orbit returns under the contract'
 notes: []

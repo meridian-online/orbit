@@ -102,7 +102,7 @@ pub fn verify_all(layout: &OrbitLayout) -> std::io::Result<VerifyOutcome> {
         check_round_trip::<Spec>(&path, &mut outcome);
     }
 
-    // 3. cards/*.yaml — shallow; cards/memos/ is intentionally skipped.
+    // 3. cards/*.yaml — shallow scan of the cards directory.
     for path in list_or_empty(layout.list_card_files()) {
         check_round_trip::<Card>(&path, &mut outcome);
     }

@@ -7,8 +7,8 @@ goal: Extract capability cards from source material so loose evidence becomes a 
 maturity: established
 scenarios:
 - name: Distill a memo into one or more cards
-  given: a memo exists at .orbit/cards/memos/2026-04-04-search-ux.md
-  when: I run /orb:distill .orbit/cards/memos/2026-04-04-search-ux.md
+  given: a memo exists at .orbit/memos/2026-04-04-search-ux.md
+  when: I run /orb:distill .orbit/memos/2026-04-04-search-ux.md
   then: one or more capability cards are presented for my approval; the memo can yield multiple cards if it covers distinct capabilities
   gate: false
 - name: Distill a memo cluster
@@ -62,5 +62,5 @@ relations: []
 references:
 - '/orb:card: interactive interview produces one card'
 - '/orb:discovery: Socratic Q&A produces interview.md — a common distill input'
-- '.orbit/cards/memos/2026-05-06-orbit-unarchive.md: pipeline shape (Memo → Distill → Cards → ...)'
+- '.orbit/memos/2026-05-06-orbit-unarchive.md: pipeline shape (Memo → Distill → Cards → ...)'
 notes: []

@@ -57,6 +57,6 @@ relations:
   reason: drives consume the contract this card enforces
 references:
 - .orbit/discovery/mission-resilience.md (historical)
-- '.orbit/cards/memos/2026-05-06-tabletop-the-killer-feature.md: halt conditions and escalation triggers as pre-flight artefacts'
+- '.orbit/memos/2026-05-06-tabletop-the-killer-feature.md: halt conditions and escalation triggers as pre-flight artefacts'
 - https://code.claude.com/docs/en/tools-reference
 notes: []

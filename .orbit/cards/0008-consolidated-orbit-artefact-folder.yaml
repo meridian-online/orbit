@@ -29,7 +29,7 @@ scenarios:
 - name: Hooks and scripts respect the new layout
   given: orbit prime, file-watchers, or coherence scans look for outstanding memos, active specs, or keyword matches
   when: they run
-  then: they scan .orbit/cards/memos/, .orbit/specs/, .orbit/choices/ — not the old locations
+  then: they scan .orbit/memos/, .orbit/specs/, .orbit/choices/ — not the old locations
   gate: false
 - name: Migration from orbit/ to .orbit/ ships with orbit-state
   given: an existing orbit-using repo with .orbit/cards, .orbit/choices, .orbit/specs at its root
@@ -44,6 +44,7 @@ scenarios:
 specs:
 - .orbit/archive/specs/2026-04-20-orbit-artefact-folder/spec.yaml
 - .orbit/specs/2026-05-10-spec-folders-migration/spec.yaml
+- .orbit/specs/2026-05-16-memos-own-folder/spec.yaml
 relations:
 - card: 0020-orbit-state
   type: depends-on
@@ -52,7 +53,7 @@ relations:
   type: feeds
   reason: setup creates the .orbit/ structure as part of its bootstrap
 references:
-- '.orbit/cards/memos/2026-05-06-orbit-state.md: the .orbit/ layout with selective gitignore'
+- '.orbit/memos/2026-05-06-orbit-state.md: the .orbit/ layout with selective gitignore'
 - '.orbit/choices/0015-orbit-state-architecture.md: substrate decision that ships the layout'
 - '.orbit/choices/0016-choices-vocabulary.md: decisions/ → choices/ rename within orbit'
 notes:

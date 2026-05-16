@@ -77,7 +77,7 @@ relations:
   type: depends-on
   reason: the cold-fork review fan-out is the post-rally quality gate; preserved from v1
 references:
-- '.orbit/cards/memos/2026-05-06-rally-fan-out.md: distillation source — six fan-out techniques and tasks-within-drives'
+- '.orbit/memos/2026-05-06-rally-fan-out.md: distillation source — six fan-out techniques and tasks-within-drives'
 - '.orbit/discovery/rally.md: observed pattern from parallel design session'
 - '.orbit/discovery/rally-research.md: precedent analysis across agent frameworks'
 - '.orbit/choices/0003-rally-skill-boundary.md: rally as separate skill from drive'

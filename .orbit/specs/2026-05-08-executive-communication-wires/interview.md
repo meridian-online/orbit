@@ -69,7 +69,7 @@ Land the first live wires for card 0026 so the BLUF / Decision Brief contract is
 
 ### Implementation Notes
 
-- The card's `references:` list cites `.orbit/cards/memos/2026-05-06-executive-communication-framework.md`, which has been deleted (normal post-distill state). The implementing spec should either remove this stale reference or annotate it as historical.
+- The card's `references:` list cites `.orbit/memos/2026-05-06-executive-communication-framework.md`, which has been deleted (normal post-distill state). The implementing spec should either remove this stale reference or annotate it as historical.
 - The card also references `ops decision 0029 (recommendation discipline)` — a pointer into Hugh's private ops repo. orbit is a public repo; the bare reference is unlikely to expose anything sensitive but the implementing agent should sanity-check before keeping it as-is.
 - Verify `@` import semantics from plugin SKILL.md files (not just CLAUDE.md). If unsupported, fall back to explicit prose citation in skill prompts; STYLE.md remains the canonical source via project CLAUDE.md.
 - Skills named in card scenario 9: `/orb:design` and `/orb:review-*`. Treat that as the starting set; broader skill coverage (e.g., `/orb:discovery`, `/orb:card`) is a follow-up.

@@ -54,6 +54,6 @@ relations:
   type: depends-on
   reason: memory audit is one column in the lean ledger
 references:
-- '.orbit/cards/memos/2026-05-01-lean-pass-as-recurring-discipline.md: original observation and 0.4.0 case study (eight categories of accretion)'
-- '.orbit/cards/memos/2026-05-06-lean-pass-orbit-v2.md: extended for files-canonical substrate (lean as a query, not an excavation)'
+- '.orbit/memos/2026-05-01-lean-pass-as-recurring-discipline.md: original observation and 0.4.0 case study (eight categories of accretion)'
+- '.orbit/memos/2026-05-06-lean-pass-orbit-v2.md: extended for files-canonical substrate (lean as a query, not an excavation)'
 notes: []
