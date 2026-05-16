@@ -1,0 +1,1 @@
+I want to change the `STYLE.md` from something less 'executive' to something very practical - focusing on 'user value'. Almost like a friendly product or support person helping the project reach it's goals. The executive structure had the right intent but lacked an ease of language. We want the agent to talk freely, focus on what matters next without jargon.
