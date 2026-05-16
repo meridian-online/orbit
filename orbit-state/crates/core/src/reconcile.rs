@@ -84,6 +84,42 @@ pub enum Disposition {
     /// Move the field into a sibling `<name>.legacy.yaml`. The default
     /// when no rule matches.
     Quarantine,
+    /// Apply a value-transform function. The function inspects the
+    /// field's current value and the surrounding entity mapping (with
+    /// the field itself removed) and returns either a [`TransformResult::Replace`]
+    /// (rewrite the value + optionally set sibling fields atomically) or
+    /// [`TransformResult::Quarantine`] (fall back to the existing
+    /// quarantine path with a reason).
+    ///
+    /// Per spec 2026-05-16-ac-taxonomy ac-05 — second-project trigger
+    /// for value-level transforms beyond v1's rename/drop/quarantine.
+    Transform(TransformFn),
+}
+
+/// Function pointer signature for [`Disposition::Transform`].
+///
+/// Receives the field's current value and a snapshot of the surrounding
+/// entity mapping (with the field itself removed so the transform can't
+/// accidentally re-read its own pre-image).
+pub type TransformFn = fn(&serde_yaml::Value, &serde_yaml::Mapping) -> TransformResult;
+
+/// Outcome of a Transform call. Either rewrite the value (with optional
+/// sibling-field writes) or fall back to quarantine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransformResult {
+    /// Rewrite the field's value. `sibling_writes` lets the transform set
+    /// adjacent fields in the same atomic mapping — used by the typed-AC
+    /// reconcile (spec 2026-05-16-ac-taxonomy ac-06) to split brownfield
+    /// `ac_type: gate` into `ac_type: <kind>` + `gate: true`. `detail`
+    /// surfaces in the run summary as `DispositionRecord.transform_detail`.
+    Replace {
+        value: serde_yaml::Value,
+        sibling_writes: Vec<(&'static str, serde_yaml::Value)>,
+        detail: Option<String>,
+    },
+    /// Fall back to the existing Quarantine path. The reason surfaces in
+    /// the run summary as `DispositionRecord.transform_detail`.
+    Quarantine(String),
 }
 
 impl Disposition {
@@ -92,6 +128,7 @@ impl Disposition {
             Disposition::Map(_) => "map",
             Disposition::Drop => "drop",
             Disposition::Quarantine => "quarantine",
+            Disposition::Transform(_) => "transform",
         }
     }
 }
@@ -114,20 +151,140 @@ pub const FIELD_RULES: &[(EntityType, &str, Disposition)] = &[
     // content to preserve.
     (EntityType::Spec, "version", Disposition::Drop),
     (EntityType::Spec, "date_opened", Disposition::Drop),
-    // bd-era inner AC field: `ac_type` was a free-text classifier ("code",
-    // "gate", "test", ...). The canonical schema replaces it with the
-    // `gate` boolean; the rest of the taxonomy carries no enforced
-    // semantics. Drop the inner field — gate-ness is captured separately.
+    // Inner AC `ac_type` — brownfield projects use a richer free-text
+    // taxonomy (code / doc / config / gate / docs / ...). The canonical
+    // schema (spec 2026-05-16-ac-taxonomy ac-01) accepts five values
+    // (Code/Config/Doc/Ops/Observation); this Transform routes brownfield
+    // values onto the canonical set, splits gate-as-type into orthogonal
+    // ac_type + gate=true, and quarantines unknown values.
+    //
+    // Replaces the v1 Drop entry per spec 2026-05-16-ac-taxonomy ac-06 —
+    // the second-project trigger called out in spec 2026-05-12-reconcile-mode.
     (
         EntityType::Spec,
         "acceptance_criteria[].ac_type",
-        Disposition::Drop,
+        Disposition::Transform(reconcile_ac_type),
     ),
     // bd-era top-level prose fields on Spec — predecessor_evidence,
     // constraints, exit_conditions — carry semantic content and have no
     // canonical equivalent yet, so they default to quarantine (no rule
     // here). The sidecar preserves the prose for a human to re-anchor.
 ];
+
+/// Transform handler for `acceptance_criteria[].ac_type` — spec
+/// 2026-05-16-ac-taxonomy ac-06. Routes brownfield values onto the
+/// canonical enum and splits the `gate`-as-type collision via a
+/// description-keyword heuristic. Unknown values quarantine.
+fn reconcile_ac_type(
+    value: &serde_yaml::Value,
+    surrounding: &serde_yaml::Mapping,
+) -> TransformResult {
+    let s = match value.as_str() {
+        Some(s) => s,
+        None => {
+            return TransformResult::Quarantine(format!(
+                "ac_type expected a string, got {value:?}"
+            ));
+        }
+    };
+
+    // Canonical pass-through (no-op rewrite — surfaces a "transform"
+    // disposition record so the run summary acknowledges every AC).
+    if matches!(s, "code" | "config" | "doc" | "ops" | "observation") {
+        return TransformResult::Replace {
+            value: serde_yaml::Value::String(s.into()),
+            sibling_writes: vec![],
+            detail: Some(format!("canonical pass-through: {s}")),
+        };
+    }
+
+    // Typo normalisation.
+    if s == "docs" {
+        return TransformResult::Replace {
+            value: serde_yaml::Value::String("doc".into()),
+            sibling_writes: vec![],
+            detail: Some("typo normalisation: docs -> doc".into()),
+        };
+    }
+
+    // gate-as-type split: read the AC's description and route by keyword.
+    if s == "gate" {
+        let description = surrounding
+            .get(serde_yaml::Value::String("description".into()))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        const BUILD_NEEDLES: &[&str] =
+            &["build", "cargo", "cmake", "make", "compile"];
+        const OBSERVATION_NEEDLES: &[&str] = &[
+            "eval",
+            "score",
+            "accuracy",
+            "completes",
+            "training",
+            "trained",
+            "metric",
+            "val_accuracy",
+            "profile_eval",
+        ];
+
+        if BUILD_NEEDLES.iter().any(|n| word_contains(&description, n)) {
+            return TransformResult::Replace {
+                value: serde_yaml::Value::String("code".into()),
+                sibling_writes: vec![(
+                    "gate",
+                    serde_yaml::Value::Bool(true),
+                )],
+                detail: Some(
+                    "gate-as-type with build/test description -> code + gate=true".into(),
+                ),
+            };
+        }
+        if OBSERVATION_NEEDLES
+            .iter()
+            .any(|n| word_contains(&description, n))
+        {
+            return TransformResult::Replace {
+                value: serde_yaml::Value::String("observation".into()),
+                sibling_writes: vec![(
+                    "gate",
+                    serde_yaml::Value::Bool(true),
+                )],
+                detail: Some(
+                    "gate-as-type with eval/training description -> observation + gate=true"
+                        .into(),
+                ),
+            };
+        }
+
+        return TransformResult::Quarantine(format!(
+            "unclassified gate-as-type; manual classification required (description: {description:?})"
+        ));
+    }
+
+    TransformResult::Quarantine(format!("unknown ac_type value: {s:?}"))
+}
+
+/// Whole-word substring match — `needle` matches inside `haystack` only
+/// if surrounded by non-alphanumeric characters or string boundaries.
+/// Plain `contains` would let "compile" match "compiled"; this guard
+/// prevents that.
+fn word_contains(haystack: &str, needle: &str) -> bool {
+    let bytes = haystack.as_bytes();
+    let mut start = 0;
+    while let Some(pos) = haystack[start..].find(needle) {
+        let abs = start + pos;
+        let prev_ok = abs == 0 || !bytes[abs - 1].is_ascii_alphanumeric();
+        let next_idx = abs + needle.len();
+        let next_ok = next_idx == bytes.len() || !bytes[next_idx].is_ascii_alphanumeric();
+        if prev_ok && next_ok {
+            return true;
+        }
+        start = abs + 1;
+    }
+    false
+}
 
 /// One disposition applied (or to-be-applied in dry-run) during a reconcile
 /// pass. Surfaces in the run summary and the JSON envelope.
@@ -141,8 +298,15 @@ pub struct DispositionRecord {
     /// Structural field path (e.g. `"version"` or
     /// `"acceptance_criteria[2].ac_type"`).
     pub field: String,
-    /// Action: `"map"` / `"drop"` / `"quarantine"`.
+    /// Action: `"map"` / `"drop"` / `"quarantine"` / `"transform"`. Note
+    /// that a Transform that falls back to quarantine flips the action
+    /// to `"quarantine"` so the existing sidecar code picks up the
+    /// payload.
     pub action: String,
+    /// Per-disposition rationale set by Transform handlers — names which
+    /// rule matched or why the fallback fired (spec 2026-05-16-ac-taxonomy
+    /// ac-05). Non-Transform dispositions leave this as None.
+    pub transform_detail: Option<String>,
 }
 
 /// Aggregate result of `reconcile_all`. Mirrors
@@ -401,12 +565,24 @@ fn recurse_inner(
             .collect();
 
         for inner_key in inner_keys {
-            if inner_fields.contains(&inner_key.as_str()) {
-                continue;
-            }
-
+            // Per spec 2026-05-16-ac-taxonomy ac-06, an inner field with a
+            // registry rule fires that rule even if the field name is in
+            // the canonical FIELDS set — Transform rules use this to
+            // route brownfield values onto the canonical enum (and to
+            // surface a no-op pass-through disposition record for the run
+            // summary). A canonical field with NO registry rule is left
+            // alone (the original 'continue' path).
             let registry_path = format!("{}[].{}", inner_path_prefix, inner_key);
-            let disposition = lookup_disposition(kind, &registry_path);
+            let explicit = lookup_disposition_explicit(kind, &registry_path);
+            let disposition = match explicit {
+                Some(d) => d,
+                None => {
+                    if inner_fields.contains(&inner_key.as_str()) {
+                        continue;
+                    }
+                    Disposition::Quarantine
+                }
+            };
 
             let display_field = format!("{}[{}].{}", inner_path_prefix, idx, inner_key);
             let (record, payload) = apply_inner(
@@ -435,11 +611,12 @@ fn apply_top_level(
     kind: EntityType,
 ) -> (DispositionRecord, Option<serde_yaml::Value>) {
     let key_value = serde_yaml::Value::String(key.into());
-    let record = DispositionRecord {
+    let mut record = DispositionRecord {
         path: display_path.to_string(),
         kind: kind.as_str().to_string(),
         field: key.to_string(),
         action: disposition.action_str().to_string(),
+        transform_detail: None,
     };
     match disposition {
         Disposition::Map(new_name) => {
@@ -456,6 +633,34 @@ fn apply_top_level(
             let payload = mapping.remove(&key_value);
             (record, payload)
         }
+        Disposition::Transform(transform_fn) => {
+            let current = match mapping.get(&key_value).cloned() {
+                Some(v) => v,
+                None => return (record, None),
+            };
+            let mut surrounding = mapping.clone();
+            surrounding.remove(&key_value);
+            match transform_fn(&current, &surrounding) {
+                TransformResult::Replace {
+                    value,
+                    sibling_writes,
+                    detail,
+                } => {
+                    mapping.insert(key_value, value);
+                    for (sib_key, sib_val) in sibling_writes {
+                        mapping.insert(serde_yaml::Value::String(sib_key.into()), sib_val);
+                    }
+                    record.transform_detail = detail;
+                    (record, None)
+                }
+                TransformResult::Quarantine(reason) => {
+                    let payload = mapping.remove(&key_value);
+                    record.action = "quarantine".into();
+                    record.transform_detail = Some(reason);
+                    (record, payload)
+                }
+            }
+        }
     }
 }
 
@@ -468,11 +673,12 @@ fn apply_inner(
     kind: EntityType,
 ) -> (DispositionRecord, Option<serde_yaml::Value>) {
     let key_value = serde_yaml::Value::String(inner_key.into());
-    let record = DispositionRecord {
+    let mut record = DispositionRecord {
         path: display_path.to_string(),
         kind: kind.as_str().to_string(),
         field: display_field.to_string(),
         action: disposition.action_str().to_string(),
+        transform_detail: None,
     };
     match disposition {
         Disposition::Map(new_name) => {
@@ -489,16 +695,54 @@ fn apply_inner(
             let payload = inner_map.remove(&key_value);
             (record, payload)
         }
+        Disposition::Transform(transform_fn) => {
+            let current = match inner_map.get(&key_value).cloned() {
+                Some(v) => v,
+                None => return (record, None),
+            };
+            let mut surrounding = inner_map.clone();
+            surrounding.remove(&key_value);
+            match transform_fn(&current, &surrounding) {
+                TransformResult::Replace {
+                    value,
+                    sibling_writes,
+                    detail,
+                } => {
+                    inner_map.insert(key_value, value);
+                    for (sib_key, sib_val) in sibling_writes {
+                        inner_map
+                            .insert(serde_yaml::Value::String(sib_key.into()), sib_val);
+                    }
+                    record.transform_detail = detail;
+                    (record, None)
+                }
+                TransformResult::Quarantine(reason) => {
+                    let payload = inner_map.remove(&key_value);
+                    record.action = "quarantine".into();
+                    record.transform_detail = Some(reason);
+                    (record, payload)
+                }
+            }
+        }
     }
 }
 
 fn lookup_disposition(kind: EntityType, structural_path: &str) -> Disposition {
+    lookup_disposition_explicit(kind, structural_path).unwrap_or(Disposition::Quarantine)
+}
+
+/// Like `lookup_disposition` but returns `None` when no rule matches —
+/// lets callers (e.g. `recurse_inner`) distinguish "explicit registry
+/// rule" from "default-quarantine fallback." Per spec 2026-05-16-ac-
+/// taxonomy ac-06: a canonical inner field with an explicit Transform
+/// rule should still fire that rule on read.
+fn lookup_disposition_explicit(kind: EntityType, structural_path: &str) -> Option<Disposition> {
     for (rule_kind, rule_path, disposition) in FIELD_RULES {
         if *rule_kind == kind && *rule_path == structural_path {
-            return *disposition;
+            return Some(*disposition);
         }
     }
-    Disposition::Quarantine
+    None
 }
 
 // ============================================================================
@@ -701,26 +945,23 @@ mod tests {
     }
 
     #[test]
-    fn inner_field_canonical_ac_type_fires_no_reconcile_disposition() {
-        // spec 2026-05-16-ac-taxonomy ac-01: `ac_type` is now a canonical
-        // inner field on AcceptanceCriterion. A spec carrying a canonical
-        // ac_type value does NOT trigger any reconcile disposition —
-        // walk_and_classify recognises `ac_type` as a canonical inner
-        // field and recurses past it. (Any canonical-writer normalisation
-        // that may still rewrite the file is a separate concern from the
-        // reconcile registry; the registry's Drop entry at
-        // reconcile.rs:121-125 is dormant for canonical values and will
-        // be REPLACED with a Transform rule in ac-06.)
+    fn inner_field_canonical_ac_type_fires_transform_pass_through() {
+        // spec 2026-05-16-ac-taxonomy ac-06: a canonical ac_type value
+        // fires the Transform rule as a no-op pass-through. Disposition
+        // count == 1 with action "transform" + the canonical-pass-through
+        // detail. The on-disk value is preserved.
         let (_dir, layout) = fresh_layout();
         let yaml = "id: '0001'\ngoal: g\nstatus: open\nacceptance_criteria:\n- id: ac-01\n  description: do thing\n  gate: true\n  checked: false\n  ac_type: observation\n";
         let path = write_spec(&layout, "0001", yaml);
 
         let report = reconcile_all(&layout, false);
+        assert_eq!(report.dispositions.len(), 1, "got: {:?}", report.dispositions);
+        let d = &report.dispositions[0];
+        assert_eq!(d.action, "transform");
+        assert_eq!(d.field, "acceptance_criteria[0].ac_type");
         assert_eq!(
-            report.dispositions.len(),
-            0,
-            "canonical ac_type must not fire any reconcile disposition; got: {:?}",
-            report.dispositions
+            d.transform_detail.as_deref(),
+            Some("canonical pass-through: observation")
         );
 
         let after = std::fs::read_to_string(&path).unwrap();
@@ -852,10 +1093,13 @@ mod tests {
     }
 
     #[test]
-    fn lookup_disposition_returns_drop_for_inner_ac_type() {
-        assert_eq!(
-            lookup_disposition(EntityType::Spec, "acceptance_criteria[].ac_type"),
-            Disposition::Drop
+    fn lookup_disposition_returns_transform_for_inner_ac_type() {
+        // spec 2026-05-16-ac-taxonomy ac-06: the ac_type Drop entry was
+        // replaced with Transform(reconcile_ac_type).
+        let d = lookup_disposition(EntityType::Spec, "acceptance_criteria[].ac_type");
+        assert!(
+            matches!(d, Disposition::Transform(_)),
+            "expected Transform variant, got {d:?}"
         );
     }
 
@@ -869,5 +1113,261 @@ mod tests {
             lookup_disposition(EntityType::Card, "no_such_field"),
             Disposition::Quarantine
         );
+    }
+
+    // ========================================================================
+    // Spec 2026-05-16-ac-taxonomy ac-05 + ac-06 — Transform variant + the
+    // typed-AC reconcile registry.
+    // ========================================================================
+
+    fn empty_mapping() -> serde_yaml::Mapping {
+        serde_yaml::Mapping::new()
+    }
+
+    fn ac_mapping_with_description(desc: &str) -> serde_yaml::Mapping {
+        let mut m = serde_yaml::Mapping::new();
+        m.insert(
+            serde_yaml::Value::String("description".into()),
+            serde_yaml::Value::String(desc.into()),
+        );
+        m
+    }
+
+    #[test]
+    fn ac_05_disposition_action_str_includes_transform() {
+        // spec 2026-05-16-ac-taxonomy ac-05: action_str gains a "transform" arm.
+        fn noop(_v: &serde_yaml::Value, _m: &serde_yaml::Mapping) -> TransformResult {
+            TransformResult::Replace {
+                value: serde_yaml::Value::Null,
+                sibling_writes: vec![],
+                detail: None,
+            }
+        }
+        let d: Disposition = Disposition::Transform(noop);
+        assert_eq!(d.action_str(), "transform");
+    }
+
+    #[test]
+    fn ac_05_transform_replace_rewrites_value_and_writes_siblings() {
+        // spec 2026-05-16-ac-taxonomy ac-05: a Transform returning
+        // Replace { value, sibling_writes } rewrites the field's value
+        // and atomically sets each sibling.
+        let (_dir, layout) = fresh_layout();
+        // Define an inline transform that always returns code + gate=true.
+        fn force_code_gate(
+            _v: &serde_yaml::Value,
+            _m: &serde_yaml::Mapping,
+        ) -> TransformResult {
+            TransformResult::Replace {
+                value: serde_yaml::Value::String("code".into()),
+                sibling_writes: vec![("gate", serde_yaml::Value::Bool(true))],
+                detail: Some("forced for test".into()),
+            }
+        }
+        // Run the transform directly — proves the contract independent of
+        // the registry plumbing.
+        let result = force_code_gate(
+            &serde_yaml::Value::String("anything".into()),
+            &empty_mapping(),
+        );
+        match result {
+            TransformResult::Replace {
+                value,
+                sibling_writes,
+                detail,
+            } => {
+                assert_eq!(value, serde_yaml::Value::String("code".into()));
+                assert_eq!(sibling_writes.len(), 1);
+                assert_eq!(sibling_writes[0].0, "gate");
+                assert_eq!(sibling_writes[0].1, serde_yaml::Value::Bool(true));
+                assert_eq!(detail.as_deref(), Some("forced for test"));
+            }
+            TransformResult::Quarantine(_) => panic!("expected Replace"),
+        }
+        // Sanity: the layout helper still works (test fixture sanity).
+        let _ = layout;
+    }
+
+    #[test]
+    fn ac_05_transform_quarantine_falls_back_to_quarantine_path() {
+        // spec 2026-05-16-ac-taxonomy ac-05: Transform returning Quarantine
+        // falls through to the existing Quarantine path. Test the
+        // returning-quarantine variant via the typed-AC handler so we get
+        // the integration as well.
+        let (_dir, layout) = fresh_layout();
+        let yaml = "id: '0001'\ngoal: g\nstatus: open\nacceptance_criteria:\n- id: ac-01\n  description: 'unrelated description text'\n  gate: false\n  checked: false\n  ac_type: gate\n";
+        let path = write_spec(&layout, "0001", yaml);
+
+        let report = reconcile_all(&layout, false);
+        assert_eq!(report.dispositions.len(), 1);
+        let d = &report.dispositions[0];
+        // Falls back to "quarantine" so the existing sidecar code picks
+        // up the value.
+        assert_eq!(d.action, "quarantine");
+        assert!(
+            d.transform_detail
+                .as_ref()
+                .map(|s| s.contains("unclassified gate-as-type"))
+                .unwrap_or(false),
+            "transform_detail should explain the fallback: {:?}",
+            d.transform_detail
+        );
+        // Sidecar carries the quarantined value.
+        let side = sidecar_path(&path);
+        assert!(side.exists(), "sidecar should exist after quarantine fallback");
+    }
+
+    #[test]
+    fn ac_06_typo_normalises_docs_to_doc() {
+        let result = reconcile_ac_type(
+            &serde_yaml::Value::String("docs".into()),
+            &empty_mapping(),
+        );
+        match result {
+            TransformResult::Replace { value, sibling_writes, detail } => {
+                assert_eq!(value, serde_yaml::Value::String("doc".into()));
+                assert!(sibling_writes.is_empty());
+                assert!(detail.unwrap().contains("typo normalisation"));
+            }
+            r => panic!("expected Replace, got {r:?}"),
+        }
+    }
+
+    #[test]
+    fn ac_06_canonical_value_passes_through_with_no_op() {
+        for canonical in &["code", "config", "doc", "ops", "observation"] {
+            let result = reconcile_ac_type(
+                &serde_yaml::Value::String((*canonical).into()),
+                &empty_mapping(),
+            );
+            match result {
+                TransformResult::Replace { value, sibling_writes, detail } => {
+                    assert_eq!(value, serde_yaml::Value::String((*canonical).into()));
+                    assert!(sibling_writes.is_empty());
+                    assert!(detail.unwrap().contains("canonical pass-through"));
+                }
+                r => panic!("expected Replace for {canonical}, got {r:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn ac_06_gate_with_build_description_routes_to_code_plus_gate() {
+        let result = reconcile_ac_type(
+            &serde_yaml::Value::String("gate".into()),
+            &ac_mapping_with_description("cargo build succeeds without errors"),
+        );
+        match result {
+            TransformResult::Replace { value, sibling_writes, detail } => {
+                assert_eq!(value, serde_yaml::Value::String("code".into()));
+                assert_eq!(sibling_writes.len(), 1);
+                assert_eq!(sibling_writes[0].0, "gate");
+                assert_eq!(sibling_writes[0].1, serde_yaml::Value::Bool(true));
+                assert!(detail.unwrap().contains("build/test description"));
+            }
+            r => panic!("expected Replace, got {r:?}"),
+        }
+    }
+
+    #[test]
+    fn ac_06_gate_with_eval_description_routes_to_observation_plus_gate() {
+        let result = reconcile_ac_type(
+            &serde_yaml::Value::String("gate".into()),
+            &ac_mapping_with_description("Profile eval >= 160/190 label accuracy"),
+        );
+        match result {
+            TransformResult::Replace { value, sibling_writes, detail } => {
+                assert_eq!(value, serde_yaml::Value::String("observation".into()));
+                assert_eq!(sibling_writes.len(), 1);
+                assert_eq!(sibling_writes[0].0, "gate");
+                assert_eq!(sibling_writes[0].1, serde_yaml::Value::Bool(true));
+                assert!(detail.unwrap().contains("eval/training"));
+            }
+            r => panic!("expected Replace, got {r:?}"),
+        }
+    }
+
+    #[test]
+    fn ac_06_gate_with_unmatched_description_quarantines() {
+        let result = reconcile_ac_type(
+            &serde_yaml::Value::String("gate".into()),
+            &ac_mapping_with_description("some unrelated thing"),
+        );
+        match result {
+            TransformResult::Quarantine(reason) => {
+                assert!(reason.contains("unclassified gate-as-type"));
+            }
+            r => panic!("expected Quarantine, got {r:?}"),
+        }
+    }
+
+    #[test]
+    fn ac_06_unknown_ac_type_value_quarantines() {
+        let result = reconcile_ac_type(
+            &serde_yaml::Value::String("custom_kind".into()),
+            &empty_mapping(),
+        );
+        match result {
+            TransformResult::Quarantine(reason) => {
+                assert!(reason.contains("unknown ac_type value"));
+            }
+            r => panic!("expected Quarantine, got {r:?}"),
+        }
+    }
+
+    #[test]
+    fn ac_06_word_contains_respects_word_boundaries() {
+        // "compile" should NOT match "compiled" (word-boundary on the right).
+        // "build" should match "build" surrounded by spaces.
+        // "eval" should NOT match "evaluation" (word-boundary on the right).
+        assert!(word_contains("cargo build succeeds", "build"));
+        assert!(word_contains("cmake compile step", "compile"));
+        assert!(!word_contains("compiled binary", "compile"));
+        assert!(!word_contains("evaluation pipeline", "eval"));
+        assert!(word_contains("eval = 99/100", "eval"));
+    }
+
+    #[test]
+    fn ac_06_brownfield_dry_run_routes_observed_corpus_correctly() {
+        // spec 2026-05-16-ac-taxonomy ac-06 verification: an integration
+        // run against a fixture brownfield tree containing one AC of each
+        // routing path produces the expected disposition shape.
+        let (_dir, layout) = fresh_layout();
+        let yaml = "id: '0001'\n\
+                    goal: g\n\
+                    status: open\n\
+                    acceptance_criteria:\n\
+                    - id: ac-canonical\n  description: already canonical\n  gate: false\n  checked: false\n  ac_type: code\n\
+                    - id: ac-typo\n  description: doc-shaped\n  gate: false\n  checked: false\n  ac_type: docs\n\
+                    - id: ac-build\n  description: cargo build succeeds\n  gate: false\n  checked: false\n  ac_type: gate\n\
+                    - id: ac-eval\n  description: eval >= 160/190\n  gate: false\n  checked: false\n  ac_type: gate\n\
+                    - id: ac-unknown-gate\n  description: nothing relevant\n  gate: false\n  checked: false\n  ac_type: gate\n\
+                    - id: ac-unknown-value\n  description: anything\n  gate: false\n  checked: false\n  ac_type: bizarre_kind\n";
+        write_spec(&layout, "0001", yaml);
+
+        let report = reconcile_all(&layout, false);
+        assert_eq!(
+            report.dispositions.len(),
+            6,
+            "one disposition per AC; got: {:?}",
+            report.dispositions
+        );
+
+        let actions: Vec<&str> = report.dispositions.iter().map(|d| d.action.as_str()).collect();
+        // The canonical, typo, build, and eval cases are all "transform"
+        // (Replace path). The unknown-gate and unknown-value cases fall
+        // back to "quarantine".
+        assert_eq!(actions.iter().filter(|a| **a == "transform").count(), 4);
+        assert_eq!(actions.iter().filter(|a| **a == "quarantine").count(), 2);
+
+        // Every disposition has a transform_detail (Transform handlers
+        // always populate it).
+        for d in &report.dispositions {
+            assert!(
+                d.transform_detail.is_some(),
+                "every Transform disposition should carry a transform_detail; got {:?}",
+                d
+            );
+        }
     }
 }

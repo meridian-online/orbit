@@ -658,9 +658,13 @@ fn run_reconcile(layout: &OrbitLayout, dry_run: bool, json: bool) -> ExitCode {
                 out.push(',');
             }
             out.push_str(&format!(
-                "{{\"path\":{:?},\"kind\":{:?},\"field\":{:?},\"action\":{:?}}}",
+                "{{\"path\":{:?},\"kind\":{:?},\"field\":{:?},\"action\":{:?}",
                 d.path, d.kind, d.field, d.action
             ));
+            if let Some(detail) = &d.transform_detail {
+                out.push_str(&format!(",\"transform_detail\":{:?}", detail));
+            }
+            out.push('}');
         }
         out.push_str("]}");
         println!("{out}");
@@ -674,7 +678,13 @@ fn run_reconcile(layout: &OrbitLayout, dry_run: bool, json: bool) -> ExitCode {
             report.dispositions.len(),
         );
         for d in &report.dispositions {
-            println!("  {} {} {} — {}", d.action, d.kind, d.field, d.path);
+            match &d.transform_detail {
+                Some(detail) => println!(
+                    "  {} {} {} — {} ({})",
+                    d.action, d.kind, d.field, d.path, detail
+                ),
+                None => println!("  {} {} {} — {}", d.action, d.kind, d.field, d.path),
+            }
         }
         for (path, msg) in &report.parse_failed {
             eprintln!("  parse failed: {} — {msg}", path.display());
