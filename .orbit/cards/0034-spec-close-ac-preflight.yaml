@@ -38,6 +38,7 @@ scenarios:
   gate: true
 specs:
 - .orbit/specs/2026-05-13-spec-close-ac-preflight/spec.yaml
+- .orbit/specs/2026-05-16-ac-taxonomy/spec.yaml
 relations:
 - card: 0020-orbit-state
   type: feeds
