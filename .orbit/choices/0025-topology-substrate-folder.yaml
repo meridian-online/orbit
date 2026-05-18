@@ -1,0 +1,159 @@
+id: '0025'
+title: Topology lives in .orbit/topology/ substrate folder
+status: proposed
+date_created: 2026-05-18
+date_modified: 2026-05-18
+body: |
+  # 0025. Topology lives in .orbit/topology/ substrate folder
+
+  ## Context and Problem Statement
+
+  The 2026-05-18 documentation-topology shipping (card 0040, specs
+  `2026-05-18-documentation-topology` + `2026-05-18-topology-substrate-wires`)
+  materialised topology as a single markdown doc at `docs/topology.md`,
+  with a heuristic markdown parser, drift detection by header / list
+  scanning, and a `docs.topology` config pointer wiring it in. Card 0040's
+  own notes explicitly deferred two questions to design: "location of the
+  topology file (docs/topology.md, .orbit/topology.md, repo root)" and
+  the implicit format question. The shipping decision answered both with
+  the conservative choice — single markdown doc, under docs/.
+
+  Post-ship evidence: topology is not read as documentation. Agents query
+  it during code-investigation — pointer lookups by subsystem, not
+  end-to-end reads. Humans rarely open it. Pointer-only, subsystem-keyed,
+  machine-edited entries belong in substrate (`.orbit/`), not in
+  user-facing docs. The location is a category error.
+
+  Three signals favour substrate-folder over docs-markdown:
+
+  1. **Audience.** `.orbit/` is the agent-substrate boundary. Cards,
+     choices, specs, memories all live there because their audience is
+     agents and the author-as-substrate-curator, not end-users browsing
+     docs. Topology entries share that audience profile.
+  2. **Pruning cost.** A stale subsystem entry in a markdown doc is
+     mid-file surgery (delete-this-block-but-not-that-one). In a per-file
+     substrate folder it is `rm .orbit/topology/<subsystem>.yaml`. Agents
+     accrete without pruning by default; the per-file shape makes the
+     prune cheap enough to actually happen.
+  3. **Drift detection becomes structural.** The current parser scans
+     markdown headers and list shapes — heuristic and fragile. A yaml
+     schema with declared fields enables structural drift detection
+     (missing field X, wrong type, dangling pointer) by the existing
+     orbit-state machinery (parser, canonicalise, verify).
+
+  Structural precedent: choice 0021 (spec-folders) made the same kind of
+  move for specs — flat to folder-sidecar — for the same reason: the
+  shape that compounds cleanly inside `.orbit/` beats the shape that
+  compounds messily.
+
+  ## Considered Options
+
+  - **A. Status quo — single markdown doc at `docs/topology.md`.**
+    Pro: just shipped; zero churn; markdown is human-readable end-to-end.
+    Con: category-error audience placement; per-entry pruning is mid-file
+    surgery; drift detection stays heuristic; doesn't compose with the
+    rest of `.orbit/` substrate machinery.
+
+  - **B. Move markdown doc into substrate — `.orbit/topology.md`.**
+    Pro: fixes the audience boundary at minimum cost; preserves the
+    parser shipped today.
+    Con: keeps the per-entry pruning problem (still mid-file surgery);
+    keeps the heuristic markdown parser; doesn't gain composability with
+    cards/choices/specs machinery.
+
+  - **C. Per-subsystem yaml under `.orbit/topology/<subsystem>.yaml`.**
+    Pro: substrate boundary correct; per-file pruning is `rm`; structural
+    drift detection via yaml schema; composes with existing orbit-state
+    parse/canonicalise/verify; mirrors the `.orbit/cards/<id>.yaml`,
+    `.orbit/choices/<id>.yaml`, `.orbit/specs/<id>/spec.yaml` shape.
+    Con: reverses the file-shape decision shipped today; reworks the
+    parser, drift detection, /orb:topology skill modes, the
+    `docs.topology` config key, and the §6d setup scaffolding.
+
+  - **D. SQLite-canonical — topology entries in the index DB.**
+    Pro: queryable; zero file noise.
+    Con: violates choice 0015's files-canonical commitment; loses
+    git-trackability of topology evolution; loses portability of the
+    knowledge surface across checkouts.
+
+  ## Decision Outcome
+
+  Chosen option: **C — per-subsystem yaml under `.orbit/topology/`.**
+
+  The layout becomes:
+
+  ```
+  .orbit/topology/
+    <subsystem>.yaml                (one file per subsystem entry)
+  ```
+
+  Each yaml carries the pointers across that subsystem's body of
+  knowledge — canonical code, decision record, operational doc, test
+  surface. Exact schema is out of scope for this choice; the migration
+  spec will pin it.
+
+  Treatment of the 2026-05-18 shipping: **supersession, not failure.**
+  The shipped work — `/orb:topology` skill (write/read/audit modes),
+  audit verb, drift detection, session-prime topology_drift envelope,
+  spec.close topology_warnings envelope, memory remember nudge, §6d
+  setup scaffolding — exercised the capability and exposed the
+  audience/shape mismatch that this choice corrects. None of the
+  substrate-engagement machinery (envelopes, nudges, drift detection)
+  is wasted; only the file-shape and parser change.
+
+  Card 0040's notes carry two open questions that this choice answers:
+  file location (`.orbit/topology/<subsystem>.yaml` answers
+  "docs/topology.md, .orbit/topology.md, repo root") and the implicit
+  format question (yaml, not markdown).
+
+  ### Migration plan (out of scope for this choice — drives a follow-up spec)
+
+  1. Schema definition for `.orbit/topology/<subsystem>.yaml` entries
+     in `orbit-state` (FIELDS const, serde struct, schema tests).
+  2. New `.orbit/topology/` layout method on Layout; topology
+     scanner / list verb.
+  3. Replace markdown parser in `audit_topology` with per-file yaml
+     parse; drift detection becomes structural.
+  4. `/orb:topology` skill (write/read/audit) rewritten for per-file
+     edits.
+  5. `docs.topology` config key supersedes/replaces — either pointer
+     drops (convention beats config) or repoints to `.orbit/topology/`.
+  6. §6d setup scaffolding rewires to create `.orbit/topology/` (empty
+     directory or seed file) instead of the docs/topology.md stub.
+  7. Session-prime topology_drift envelope + spec.close
+     topology_warnings envelope continue to fire, against the new
+     parser.
+  8. Memory remember nudge wording updated if it references the doc
+     shape.
+  9. Existing `docs/topology.md` if present in any consumer repo
+     migrates by importing entries into per-file yamls (one-shot verb
+     `orbit topology migrate-layout` or similar; idempotent).
+
+  ### Out of scope
+
+  - Whether topology entries themselves should be SQLite-backed
+    (deferred per choice 0015 commitment).
+  - Card 0040's framing edits (the card's name `documentation-topology`
+    becomes a mild misnomer; the card update is a separate touch).
+
+  ## Consequences
+
+  - Cards 0040's open questions on location and format are answered;
+    the card's `notes:` field can drop those two lines on next touch.
+  - `/orb:setup` §6d scaffolding switches from a single-file pointer
+    to a substrate folder; the conformance work (card 0039) gains a
+    new canonical surface (`.orbit/topology/` directory presence and
+    per-file shape).
+  - The category-error in placement is corrected; substrate boundary
+    is restored.
+  - Markdown-parser fragility in `audit_topology` is replaced with
+    structural yaml validation via existing orbit-state machinery.
+  - Choice 0015 (files-canonical) is unaffected — files remain
+    canonical, now per-subsystem.
+references:
+- '.orbit/cards/0040-documentation-topology.yaml: the capability whose implementation surface this choice decides'
+- '.orbit/choices/0021-spec-folders.yaml: structural precedent — substrate folder migration under an existing capability'
+- '.orbit/choices/0015-orbit-state-architecture.yaml: files-canonical commitment this choice operates within'
+- '.orbit/specs/2026-05-18-documentation-topology/spec.yaml: the markdown-doc shipping superseded by this choice'
+- '.orbit/specs/2026-05-18-topology-substrate-wires/spec.yaml: the substrate-engagement wiring preserved by this choice'
+- '.orbit/memos/2026-05-18-topology-as-substrate.md: distillation source'
