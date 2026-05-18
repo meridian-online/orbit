@@ -4,7 +4,7 @@ as_a: agent investigating how a multi-file subsystem works
 i_want: a single subsystem-keyed index that points to the canonical code, decision record, operational doc, and test surface for each subsystem
 so_that: I reach for the substrate's existing answer rather than extrapolating from one source file under time pressure
 goal: agents investigating any architectural question find the canonical sources within one file-read; the index stays correct without duplicating content because it carries only pointers
-maturity: planned
+maturity: emerging
 scenarios:
 - name: Subsystem-keyed index, not file-keyed
   given: a multi-file subsystem whose documentation lives in five-plus places — module docstrings, MADRs, ERD docs, demonstrator scripts, DI/wiring files
@@ -63,7 +63,4 @@ references:
 - '.orbit/cards/0037-memory-gates-decisions.yaml: cluster sibling — memory side of substrate engagement'
 - '.orbit/cards/0038-skills-infer-or-prompt-before-halt.yaml: cluster sibling — skill behaviour side of substrate engagement'
 notes:
-- open question — orbit-provided convention (template doc shipped with /orb:setup) vs consumer-repo decision (METHOD.md guideline); deferred to /orb:design
-- open question — location of the topology file (docs/topology.md, .orbit/topology.md, repo root); deferred to /orb:design
-- open question — scaffold-skill yes/no (does orbit ship /orb:topology); deferred to /orb:design
-- open question — maintenance mechanism (build-time check, release-boundary review, drift audit); deferred to /orb:design
+- 'open questions on file location, format, scaffold-skill, and maintenance are answered by choice 0025 (topology-substrate-folder): per-subsystem yaml at .orbit/topology/<subsystem>.yaml, orbit-shipped /orb:topology skill + orbit topology setup verb for scaffolding, orbit audit topology + spec.close topology_warnings + session-prime topology_drift for maintenance'

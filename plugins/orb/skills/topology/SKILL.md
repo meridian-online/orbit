@@ -85,7 +85,6 @@ The verb walks the `.orbit/topology/` directory and reports drift in these categ
 | `missing_entry` | A subsystem detected in the codebase (top-level directory under `src/` or `crates/`) has no entry in `.orbit/topology/` |
 | `invalid_field` | An entry parses as yaml but fails `TopologyEntry::validate` (subsystem slug too short, not slug-shaped, or empty `canonical_code`) |
 | `parse_failed` | An entry can't be parsed as `TopologyEntry` yaml (unknown field, wrong type, missing required) |
-| `shape_drift` | Catch-all for structural failures that don't fit the above |
 
 `audit_topology(...).configured` is true iff `.orbit/topology/` exists AND contains ≥ 1 entry (populated == configured). Exit code is 0 for all outcomes. Discrimination is via the envelope's `topology_drift` array — never `$?`. Symmetric with `orbit audit drift`'s exit-0-even-on-drift contract.
 
