@@ -70,7 +70,11 @@ Discriminate before defaulting to a card. Choosing the wrong artefact is the mos
 - Use `orbit` verbs for ALL task and spec tracking — do NOT use `TodoWrite`, `TaskCreate`, or markdown TODO lists.
 - Run `orbit session prime` at the start of every session — it surfaces open specs and recent memories.
 - Use `orbit memory remember <key> "<body>"` for persistent knowledge across sessions — do NOT use `MEMORY.md` files.
+- Use `--label code-investigate` on memories that capture code-investigation observations (a tool that worked where another failed, a query shape worth reaching for again, a structural insight worth keeping). This is the canonical label that `/orb:code-investigate` pivots on — periodic distillation lifts recurring patterns from labelled memories back into the skill's prose.
+- Use `--label topology` on memories that capture architecture-level insights (a subsystem boundary that was unclear, an investigation pattern across a multi-file capability, an entry-shape question worth surfacing). This is the canonical label that `/orb:topology` pivots on — `orbit memory remember --label topology` emits a nudge prompting the agent to consider whether the topology doc itself should be updated.
 - Use `orbit task open / claim / update / done` for in-session tracking.
+
+**Architectural-investigation posture.** Before reasoning about how a subsystem works, grep the code tree and `docs/` for it. Substrate beats extrapolation. Reach for `/orb:topology` (architecture-level) and `/orb:code-investigate` (file-level) by default rather than extrapolating from a single source file under time pressure.
 
 ## Four pillars
 

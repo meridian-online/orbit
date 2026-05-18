@@ -175,6 +175,8 @@ Distill complete:
 
 Card numbering is determined at write time. This is a single-user workflow — concurrent numbering is a known limitation, not a bug to solve.
 
+5. **Consider topology update (conditional).** If `.orbit/config.yaml` is present and the `docs.topology` key is configured, ask: did any of the newly-written cards correspond to a *subsystem-level capability* (a multi-file area with its own data shape, wiring, and operational surface) — rather than a prose, UX, or single-file change? If yes, invoke `/orb:topology` write-mode against the relevant subsystem name so the topology doc accretes alongside the new card. This is quality-gated — only fire when the distillation genuinely describes a subsystem, not on every distill.
+
 If any cards were written, suggest next step: `/orb:design` to refine a card into a spec.
 
 ## Integration with Other Skills

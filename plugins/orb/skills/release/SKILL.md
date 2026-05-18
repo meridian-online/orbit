@@ -66,6 +66,12 @@ Run these checks from the orbit repo's working tree (the skill expects to be inv
 
    Stop. The release is a no-op until resolved.
 
+5. **Topology drift surface (non-blocking).** Run `orbit audit topology` (only when `.orbit/config.yaml` exists and `docs.topology` is configured — the audit auto-detects this and exits cleanly with a "topology capability not configured" envelope when absent).
+
+   - **Envelope `topology_drift` empty or absent** → no-op.
+   - **Envelope `topology_drift` has ≤ 10 entries** → surface the full list verbatim with a one-line framing: `topology drift surfaced — review before bumping`. Operator can proceed regardless (release is NOT gated by topology drift).
+   - **Envelope `topology_drift` has > 10 entries** → summarise rather than dump: `<N> topology drift items; run \`orbit audit topology\` for the full list` followed by the first ten entries only. Truncation rule keeps the pre-bump checklist readable.
+
 ### 2. Generate Changelog Entry
 
 Collect the commits since the last version bump:
