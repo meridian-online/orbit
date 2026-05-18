@@ -1,0 +1,29 @@
+id: 72b52204-7b74-4a0a-8680-0735ba85a320
+started_at: 2026-05-18T02:49:59.300052749Z
+ended_at: 2026-05-18T02:49:59.300052749Z
+distillate: |-
+  TL;DR: Drive complete at 8/13 ACs. All 10 commits on main, pushed clean. 306/306 tests pass. Follow-on memo captures the remaining 5 ACs.
+
+  What shipped end-to-end
+  - **Skill:** `/orb:topology` (write / read / audit modes) at `plugins/orb/skills/topology/SKILL.md`
+  - **Substrate:** `Config` + `DocsConfig` schemas with FIELDS consts, `layout.config_file()`, `verify_all` Config branch
+  - **Verb:** `orbit audit topology` on CLI + MCP — topology doc parser + three drift categories (stale_pointer, missing_entry, shape_drift), exit-0 contract, JSON envelope
+  - **Prose:** METHOD.md posture line + `--label topology` convention, `/orb:release` truncation rule, `/orb:distill` nudge
+
+  What's deferred (follow-on memo at `.orbit/memos/2026-05-18-topology-follow-on.md`)
+  - ac-07 `/orb:setup` integration
+  - ac-08 session prime envelope extension
+  - ac-09 spec.close warnings + word-boundary heuristic
+  - ac-12 memory remember nudge
+  - ac-13 4-week observation (anchor 2026-06-15)
+
+  Substrate state at close
+  - 306/306 tests pass, `orbit verify` clean
+  - `orbit audit topology` against this repo returns *"topology capability not configured"* (correct — no `.orbit/config.yaml` here)
+  - Spec force-closed with rationale in `spec.note`; `drive.yaml` stage = complete
+  - 10 commits on main, push succeeded, tree clean
+
+  Memory saved: `session-close-2026-05-18-documentation-topology-partial-8-of-13`.
+
+  Suggested next move: open a follow-on spec via `/orb:design` against the memo when ready — the remaining 5 ACs are envelope/UX surface that consumes the substrate already shipped, so the follow-on should be cleaner than the parent.
+labels: []

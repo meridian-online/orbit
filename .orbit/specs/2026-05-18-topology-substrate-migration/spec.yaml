@@ -2,7 +2,7 @@ id: 2026-05-18-topology-substrate-migration
 goal: Reshape topology from a single docs/topology.md markdown doc into per-subsystem yaml under .orbit/topology/, per choice 0025. Preserves substrate-engagement envelopes (session-prime topology_drift, spec.close topology_warnings) shipped under spec 2026-05-18-topology-substrate-wires; replaces the markdown parser with structural yaml validation; rewrites the /orb:topology skill; ports setup-topology.sh into an orbit topology setup Rust verb per choice 0020 that scaffolds a self-describing seed (one entry per .orbit/ entity type). Gracefully retires the docs.topology config key — kept as a deprecated parse-only field this release so brownfield consumer repos that wired topology under 0.4.19 do not fail session-prime; orbit topology setup strips it from on-disk config; full field deletion is a follow-on spec after consumer-repo soak. No data-migration verb is shipped — the just-shipped capability has zero adopters with real content and there is no existing populated topology.md to import. Intent contract and pinned approach in design-note.md; pending-decision answers from the 2026-05-18 partial-mode design pass plus review-spec cycle-1 findings are captured in acceptance_criteria below.
 cards:
 - 0040-documentation-topology
-status: open
+status: closed
 labels: []
 acceptance_criteria:
 - id: ac-01

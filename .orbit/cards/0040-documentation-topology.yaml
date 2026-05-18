@@ -44,6 +44,7 @@ scenarios:
 specs:
 - .orbit/specs/2026-05-18-documentation-topology/spec.yaml
 - .orbit/specs/2026-05-18-topology-substrate-wires/spec.yaml
+- .orbit/specs/2026-05-18-topology-substrate-migration/spec.yaml
 relations:
 - card: 0025-codebase-mastery
   type: feeds
