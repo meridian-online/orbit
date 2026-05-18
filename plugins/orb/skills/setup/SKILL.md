@@ -201,31 +201,33 @@ If 6a fired the migration prompt and the author accepted, this step also removes
 
 If `@.orbit/METHOD.md` is already present, no-op (idempotent).
 
-**6d. Topology capability scaffolding.** Wire the `docs.topology` pointer in `.orbit/config.yaml` and create the stub topology doc. The byte-compare-and-prompt voice of §6b applies — the prompt fires when the substrate is absent; idempotent on a wired repo.
+**6d. Topology capability scaffolding.** Scaffold the `.orbit/topology/` substrate folder and write the self-describing seed entries. The byte-compare-and-prompt voice of §6b applies — the prompt fires when the substrate is absent or empty; idempotent on a populated repo. Per choice 0025 (`topology-substrate-folder`).
 
-The operation is implemented as a single shell script:
+The operation is implemented as a Rust verb (per choice 0020 — `shell-scripts-to-rust-verbs`):
 
 ```
-plugins/orb/scripts/setup-topology.sh --project-root <project>
+orbit topology setup
 ```
 
-Steps the script performs:
+Steps the verb performs:
 
-1. **Idempotent check.** If `.orbit/config.yaml` exists and carries a `docs.topology` entry, no-op on the config — but if the target file at that path does not exist on disk, still create the stub at that path (brownfield-accept rule, suppresses first-prime drift noise).
-2. **Wire-or-decline prompt.** When `docs.topology` is absent (either the config doesn't exist or the key isn't set), prompt:
+1. **Brownfield config cleanup.** If `.orbit/config.yaml` exists and carries a legacy `docs.topology` key, transactionally rewrite the file with that key removed (and the now-empty `docs:` block elided if it has no other keys). The `DocsConfig::topology` field is retained as parse-only for compatibility — this step removes it from on-disk config.
+2. **Idempotent directory creation.** Create `.orbit/topology/` if absent (no-op when present).
+3. **Self-describing seed.** Write one `TopologyEntry` per `.orbit/` entity type (cards, choices, specs, memories, topology itself) at `.orbit/topology/<entity>.yaml`. Each seed entry points at the orbit-state schema struct (`canonical_code`), the relevant choice (`decision_record`), the writing SKILL.md (`operational_doc`), and the schema tests (`test_surface`). Existing entries are skipped (operator edits preserved — no overwrite).
+4. **Wire-or-decline prompt.** When `.orbit/topology/` is absent or empty (substrate unconfigured), the verb prompts:
 
    ```
-   orbit: topology capability not wired (docs.topology absent from .orbit/config.yaml).
-   orbit: wiring scaffolds .orbit/config.yaml with docs.topology: docs/topology.md and creates a stub at that path.
+   orbit: topology capability not wired (.orbit/topology/ absent or empty).
+   orbit: wiring creates .orbit/topology/ and writes a self-describing seed (one entry per .orbit/ entity type).
    Wire topology now? (y/N)
    ```
 
-   - **`y`:** scaffold `.orbit/config.yaml` with `docs.topology: docs/topology.md` (default; if the file exists without the key, add it under the `docs:` block). If the target path's parent directory does not exist, create the directory tree before writing the stub. Then either create a stub `docs/topology.md` (heading + one-paragraph explainer + empty entry list) or, if a file already exists at the target path, wire the pointer but do NOT overwrite the existing file.
+   - **`y`:** runs the setup steps above.
    - **anything else:** leave the topology capability unconfigured. The rest of orbit still works.
 
-3. **Test affordance.** `--answer-wire y|n` scripts the prompt for non-interactive runs.
+5. **Test affordance.** `--answer-wire y|n` scripts the prompt for non-interactive runs.
 
-Topology scaffolding is independent of §6a-§6c (it neither reads nor writes CLAUDE.md / METHOD.md). It runs after them in the §6 sequence but can be invoked standalone.
+Topology scaffolding is independent of §6a-§6c (it neither reads nor writes CLAUDE.md / METHOD.md). It runs after them in the §6 sequence but can be invoked standalone via `orbit topology setup`.
 
 ### 7. First Card Tutorial
 

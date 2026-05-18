@@ -1196,6 +1196,29 @@ unknown_inner: nope
     }
 
     #[test]
+    fn deprecated_docs_topology_field_round_trips_intact() {
+        // Spec 2026-05-18-topology-substrate-migration ac-04 — Option A:
+        // DocsConfig::topology is retained as a parse-only deprecated
+        // field so brownfield consumer repos (those that wired topology
+        // under 0.4.19 via spec 2026-05-18-topology-substrate-wires
+        // ac-01) do not hard-fail Config::from_str on session-prime. The
+        // canonical writer preserves the field so verify_all sees no
+        // round-trip drift. A follow-on spec deletes the field after a
+        // consumer-repo soak window.
+        let yaml = "docs:\n  topology: docs/topology.md\n";
+        let parsed: Config = serde_yaml::from_str(yaml).unwrap();
+        // Confirm the field round-trips through the canonical writer.
+        let reserialised = serde_yaml::to_string(&parsed).unwrap();
+        let reparsed: Config = serde_yaml::from_str(&reserialised).unwrap();
+        assert_eq!(parsed, reparsed);
+        // Confirm the field value is preserved on write.
+        assert!(
+            reserialised.contains("topology: docs/topology.md"),
+            "deprecated docs.topology field must be preserved on canonical write: {reserialised}",
+        );
+    }
+
+    #[test]
     fn config_round_trips_byte_identical() {
         // ac-03 verification: a populated Config round-trips through
         // serde_yaml without loss.

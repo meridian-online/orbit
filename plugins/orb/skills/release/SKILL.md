@@ -66,7 +66,7 @@ Run these checks from the orbit repo's working tree (the skill expects to be inv
 
    Stop. The release is a no-op until resolved.
 
-5. **Topology drift surface (non-blocking).** Run `orbit audit topology` (only when `.orbit/config.yaml` exists and `docs.topology` is configured — the audit auto-detects this and exits cleanly with a "topology capability not configured" envelope when absent).
+5. **Topology drift surface (non-blocking).** Run `orbit audit topology` (only when `.orbit/topology/` exists and is populated — the canonical predicate per choice 0025; the audit auto-detects this and exits cleanly with a "topology capability not configured" envelope when the directory is absent or empty).
 
    - **Envelope `topology_drift` empty or absent** → no-op.
    - **Envelope `topology_drift` has ≤ 10 entries** → surface the full list verbatim with a one-line framing: `topology drift surfaced — review before bumping`. Operator can proceed regardless (release is NOT gated by topology drift).
