@@ -2,7 +2,7 @@ id: 2026-05-18-topology-substrate-wires
 goal: Ship the topology capability envelope and UX wires — /orb:setup scaffolding, session prime topology_drift surface, spec.close topology_warnings with word-boundary heuristic, memory.remember --label topology nudge, and a 4-week observation audit — consuming the substrate shipped by spec 2026-05-18-documentation-topology. Intent contract and pinned approach in design-note.md.
 cards:
 - 0040-documentation-topology
-status: open
+status: closed
 labels:
 - spec
 acceptance_criteria:
