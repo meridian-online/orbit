@@ -2,14 +2,15 @@
 # promote.sh — card-to-spec promotion against the orbit-state substrate.
 #
 # Reads a card YAML and creates an orbit spec whose acceptance_criteria mirror
-# the card's scenarios. The spec is materialised at .orbit/specs/<spec-id>.yaml
-# (flat layout, sidecar-style — the orbit-state v0.1 convention).
+# the card's scenarios. The spec is materialised at
+# .orbit/specs/<spec-id>/spec.yaml (folder-sidecar layout — per choice 0021
+# and .orbit/conventions/spec-layout.md).
 #
 # Pipeline:
 #   1. Parse the card (python3, no yq dependency).
 #   2. Derive spec id `<YYYY-MM-DD>-<card-slug>` and card id from the filename.
-#   3. `orbit spec create <id> <goal> --card <card-id>` — creates flat YAML
-#      with empty acceptance_criteria.
+#   3. `orbit spec create <id> <goal> --card <card-id>` — creates the sidecar
+#      folder with spec.yaml inside and empty acceptance_criteria.
 #   4. Replace acceptance_criteria with one entry per scenario, preserving
 #      `gate` and seeding `checked: false`.
 #   5. `orbit canonicalise` — fix any byte drift introduced by the direct edit.
@@ -148,9 +149,10 @@ create_envelope=$(orbit "${orbit_root_args[@]}" --json spec create \
   exit 2
 }
 
-# Resolve the spec's on-disk path (root may be elsewhere).
+# Resolve the spec's on-disk path (root may be elsewhere). Folder-sidecar
+# layout: spec.yaml lives inside .orbit/specs/<id>/.
 root_for_path="${root:-$(pwd)}"
-spec_path="$root_for_path/.orbit/specs/$spec_id.yaml"
+spec_path="$root_for_path/.orbit/specs/$spec_id/spec.yaml"
 
 if [[ ! -f "$spec_path" ]]; then
   echo "promote.sh: orbit spec create did not produce expected file: $spec_path" >&2
