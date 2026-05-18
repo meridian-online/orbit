@@ -21,6 +21,16 @@ A single `docs/topology.md` (or equivalent location) keyed by **subsystem**, not
 
 Pointer-only — references canonical sources, doesn't duplicate. When the authoritative file's docstring updates, the index stays correct because it carries no content of its own. Dense, single-page, designed to be the first thing read when investigating any architectural question.
 
+## Anchored to pillar #2 (agent self-learning)
+
+The topology index is a self-learning surface, not just a navigation aid. It compounds across three downstream effects:
+
+- **Spec verbosity drops.** Specs that currently rehearse subsystem context — *here's how warmup works*, *here's the data shape* — can cite the topology entry instead. The intent contract stays sharp; the architectural backdrop lives in one place.
+- **Skills become better targeted.** A skill investigating subsystem X knows exactly which canonical files to load (authoritative code, MADR, operational doc, test surface). The skill prose can route to the right starting points instead of coaching every agent to re-grep the tree.
+- **Code mastery becomes operable at the architecture level.** `/orb:code-investigate` makes the *file-level* investigation discipline cheap; the topology index makes the *architecture-level* investigation discipline cheap. Together, the agent owns the code at both granularities.
+
+Maintenance feeds the loop. Each release that lands a new subsystem updates its topology entry; each spec that touches a subsystem can update the index in passing. The index accretes as the codebase does — substrate that compounds rather than rots.
+
 ## Behavioural complement
 
 The doc alone doesn't close the gap — agents have to *reach for it*. A CLAUDE.md "Posture" line is the natural pair: *"Before reasoning about how a subsystem works, grep the code tree and `docs/` for it. Substrate beats extrapolation."*
