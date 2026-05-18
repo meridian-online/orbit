@@ -1649,7 +1649,16 @@ fn spec_close(layout: &OrbitLayout, args: &SpecCloseArgs) -> Result<SpecCloseRes
 /// not configured or when no matches exist. Errors swallowed (this is
 /// an advisory surface, not a blocking gate).
 fn compute_topology_warnings(layout: &OrbitLayout, spec_id: &str) -> Vec<TopologyDriftEntry> {
-    let subsystems = load_topology_subsystem_names(layout);
+    // Substrate-folder shape per choice 0025: load subsystem names directly
+    // from `.orbit/topology/<subsystem>.yaml` entries. Files that fail to
+    // parse or validate are dropped — this heuristic is advisory, not a
+    // gate (audit_topology surfaces structural failures via the drift
+    // envelope instead).
+    let subsystems: Vec<String> = load_topology_entries(layout)
+        .into_iter()
+        .filter_map(|(_, result)| result.ok())
+        .map(|entry| entry.subsystem)
+        .collect();
     if subsystems.is_empty() {
         return Vec::new();
     }
@@ -2886,62 +2895,53 @@ fn audit_drift(layout: &OrbitLayout, _args: &AuditDriftArgs) -> Result<AuditDrif
     Ok(AuditDriftResult { drift })
 }
 
-// ----- audit.topology (spec 2026-05-18-documentation-topology ac-06) -----
-
-/// The five anchors a topology entry must carry. Order is normative —
-/// `/orb:topology`'s scaffolder writes them in this order. The audit's
-/// `shape_drift` detector requires all five with these exact labels.
-const TOPOLOGY_ANCHORS: &[&str] = &["code", "decision", "operational", "tests", "what"];
+// ----- audit.topology (spec 2026-05-18-documentation-topology ac-06,
+//        substrate-folder migration per choice 0025 + spec
+//        2026-05-18-topology-substrate-migration ac-02) -----
 
 /// Subdirectories under the repo root that the missing_entry heuristic
 /// scans. Top-level dirs under these are candidate subsystems.
 const TOPOLOGY_SUBSYSTEM_ROOTS: &[&str] = &["src", "crates"];
 
-/// One parsed entry from the topology doc.
-#[derive(Debug, Clone)]
-struct TopologyEntry {
-    subsystem: String,
-    anchors: std::collections::BTreeMap<String, String>,
-}
-
-/// Parse the topology doc. Looks for `## <subsystem>` headers; for each,
-/// captures `- <anchor>: <value>` bullet lines that follow until the next
-/// `## ` header. Unrecognised lines between bullets are tolerated.
-fn parse_topology_doc(text: &str) -> Vec<TopologyEntry> {
-    let mut entries: Vec<TopologyEntry> = Vec::new();
-    let mut current: Option<TopologyEntry> = None;
-
-    for raw_line in text.lines() {
-        let line = raw_line.trim_end();
-        if let Some(subsystem) = line.strip_prefix("## ") {
-            if let Some(prev) = current.take() {
-                entries.push(prev);
+/// Load every `.orbit/topology/<subsystem>.yaml` as a parsed
+/// `schema::TopologyEntry`. Files that fail to parse OR fail validate()
+/// surface as Err entries — the audit verb folds them into the drift
+/// envelope (`parse_failed` / `invalid_field` codes); other callers
+/// (`compute_topology_warnings`) drop them silently because they're
+/// advisory.
+fn load_topology_entries(layout: &OrbitLayout) -> Vec<(String, std::result::Result<crate::schema::TopologyEntry, String>)> {
+    let mut out = Vec::new();
+    let paths = match layout.list_topology_files() {
+        Ok(p) => p,
+        Err(_) => return out,
+    };
+    for path in paths {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(e) => {
+                out.push((stem, Err(format!("read failed: {e}"))));
+                continue;
             }
-            current = Some(TopologyEntry {
-                subsystem: subsystem.trim().to_string(),
-                anchors: std::collections::BTreeMap::new(),
-            });
+        };
+        let entry: crate::schema::TopologyEntry = match serde_yaml::from_str(&text) {
+            Ok(e) => e,
+            Err(e) => {
+                out.push((stem, Err(format!("parse failed: {e}"))));
+                continue;
+            }
+        };
+        if let Err(msg) = entry.validate() {
+            out.push((stem, Err(format!("validate failed: {msg}"))));
             continue;
         }
-        if let Some(entry) = current.as_mut() {
-            // Bullet shape: `- <anchor>: <value>` with optional leading whitespace.
-            let trimmed = line.trim_start();
-            if let Some(rest) = trimmed.strip_prefix("- ") {
-                if let Some((anchor, value)) = rest.split_once(':') {
-                    let anchor_lc = anchor.trim().to_lowercase();
-                    if TOPOLOGY_ANCHORS.contains(&anchor_lc.as_str()) {
-                        entry
-                            .anchors
-                            .insert(anchor_lc, value.trim().to_string());
-                    }
-                }
-            }
-        }
+        out.push((stem, Ok(entry)));
     }
-    if let Some(prev) = current.take() {
-        entries.push(prev);
-    }
-    entries
+    out
 }
 
 /// Detect top-level subsystem directories under `src/` / `crates/` from
@@ -2972,137 +2972,117 @@ fn detect_subsystem_dirs(repo_root: &Path) -> Vec<String> {
     names.into_iter().collect()
 }
 
-/// Load the parsed topology entries from the doc named by `docs.topology`.
-/// Returns an empty vec when the topology capability is not configured or
-/// when the topology doc is missing — callers that need the configured /
-/// not-configured distinction should call `audit_topology` instead.
-///
-/// Per spec 2026-05-18-topology-substrate-wires ac-03 — shared helper used
-/// by `spec_close`'s topology_warnings heuristic. The audit_topology
-/// function consumes the same parse internally but returns drift entries,
-/// not the source entries, so it isn't reusable here without exposing the
-/// internal shape.
-fn load_topology_subsystem_names(layout: &OrbitLayout) -> Vec<String> {
-    let config_path = layout.config_file();
-    if !config_path.exists() {
-        return Vec::new();
-    }
-    let config_text = match std::fs::read_to_string(&config_path) {
-        Ok(t) => t,
-        Err(_) => return Vec::new(),
-    };
-    let config: crate::schema::Config = match serde_yaml::from_str(&config_text) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
-    let topology_rel = match config.docs.as_ref().and_then(|d| d.topology.as_ref()) {
-        Some(p) => p.clone(),
-        None => return Vec::new(),
-    };
-    let repo_root = layout.root.parent().unwrap_or(&layout.root);
-    let topology_path = repo_root.join(&topology_rel);
-    let topology_text = match std::fs::read_to_string(&topology_path) {
-        Ok(t) => t,
-        Err(_) => return Vec::new(),
-    };
-    parse_topology_doc(&topology_text)
-        .into_iter()
-        .map(|e| e.subsystem)
-        .collect()
-}
-
 fn audit_topology(
     layout: &OrbitLayout,
     _args: &AuditTopologyArgs,
 ) -> Result<AuditTopologyResult> {
-    const VERB: &str = "audit.topology";
+    // Substrate-folder shape per choice 0025: topology lives at
+    // `.orbit/topology/<subsystem>.yaml`, parsed via
+    // `schema::TopologyEntry`. `configured` is true iff the directory
+    // exists AND contains at least one entry (populated == configured
+    // per design pass Q1 of spec
+    // `2026-05-18-topology-substrate-migration`).
+    let topology_dir = layout.topology_dir();
+    let loaded = load_topology_entries(layout);
 
-    // 1. Read .orbit/config.yaml. Absence → not configured.
-    let config_path = layout.config_file();
-    if !config_path.exists() {
+    let configured = topology_dir.exists() && !loaded.is_empty();
+    if !configured {
         return Ok(AuditTopologyResult {
             configured: false,
             topology_drift: Vec::new(),
         });
     }
-    let config_text = std::fs::read_to_string(&config_path)
-        .map_err(|e| Error::unavailable(VERB, format!("read {}: {e}", config_path.display())))?;
-    let config: crate::schema::Config = serde_yaml::from_str(&config_text)
-        .map_err(|e| Error::malformed(VERB, format!("parse config.yaml: {e}")))?;
-
-    let topology_rel = match config.docs.as_ref().and_then(|d| d.topology.as_ref()) {
-        Some(p) => p.clone(),
-        None => {
-            return Ok(AuditTopologyResult {
-                configured: false,
-                topology_drift: Vec::new(),
-            });
-        }
-    };
-
-    // 2. Resolve the topology doc path against the REPO root (config
-    //    paths are repo-relative, not .orbit-relative).
-    let repo_root = layout.root.parent().unwrap_or(&layout.root);
-    let topology_path = repo_root.join(&topology_rel);
 
     let mut drift: Vec<TopologyDriftEntry> = Vec::new();
+    let repo_root = layout.root.parent().unwrap_or(&layout.root);
 
-    // 3. If the topology doc itself doesn't exist, that's a single
-    //    stale_pointer drift entry on the config pointer.
-    if !topology_path.exists() {
-        drift.push(TopologyDriftEntry {
-            subsystem: String::new(),
-            drift_kind: "stale_pointer".into(),
-            detail: format!("docs.topology points to nonexistent {topology_rel}"),
-        });
-        return Ok(AuditTopologyResult {
-            configured: true,
-            topology_drift: drift,
-        });
-    }
-
-    let topology_text = std::fs::read_to_string(&topology_path)
-        .map_err(|e| Error::unavailable(VERB, format!("read {}: {e}", topology_path.display())))?;
-    let entries = parse_topology_doc(&topology_text);
-
-    // 4. For each entry: shape_drift (missing anchors) and stale_pointer
-    //    (anchor values that name files which don't exist).
-    for entry in &entries {
-        // shape_drift: missing anchors
-        for &anchor in TOPOLOGY_ANCHORS {
-            if !entry.anchors.contains_key(anchor) {
+    // 1. Per-file structural failures: parse_failed / invalid_field.
+    //    Each unparseable or invalid file becomes one drift entry
+    //    keyed by the file stem (best-effort subsystem name).
+    for (stem, result) in &loaded {
+        match result {
+            Ok(_) => {}
+            Err(msg) => {
+                let kind = if msg.starts_with("validate failed") {
+                    "invalid_field"
+                } else if msg.starts_with("parse failed") {
+                    "parse_failed"
+                } else {
+                    "shape_drift"
+                };
                 drift.push(TopologyDriftEntry {
-                    subsystem: entry.subsystem.clone(),
-                    drift_kind: "shape_drift".into(),
-                    detail: format!("missing anchor: {anchor}"),
+                    subsystem: stem.clone(),
+                    drift_kind: kind.into(),
+                    detail: msg.clone(),
                 });
             }
         }
-        // stale_pointer: anchor values that look like paths and don't exist.
-        // Skip `what:` (it's prose, not a path).
-        for (anchor, value) in &entry.anchors {
-            if anchor == "what" {
-                continue;
-            }
-            // Skip empty / hand-waved values.
-            let v = value.trim();
-            if v.is_empty() || v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("n/a") {
-                continue;
-            }
-            let candidate = repo_root.join(v);
-            if !candidate.exists() {
+    }
+
+    // 2. Per-entry pointer drift: each path-shaped pointer is checked
+    //    for filesystem existence (canonical_code / operational_doc /
+    //    test_surface — opaque strings, but the convention is paths).
+    //    decision_record entries try resolve_numeric_slug →
+    //    layout.choice_file first, and fall through to a direct path
+    //    check on resolution failure (per spec ac-01's two-step
+    //    pattern).
+    for (_, result) in &loaded {
+        let entry = match result {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for path in &entry.canonical_code {
+            if !repo_root.join(path).exists() {
                 drift.push(TopologyDriftEntry {
                     subsystem: entry.subsystem.clone(),
                     drift_kind: "stale_pointer".into(),
-                    detail: format!("{anchor}: {v}"),
+                    detail: format!("canonical_code: {path}"),
+                });
+            }
+        }
+        for id_or_path in &entry.decision_record {
+            // First, try resolve_numeric_slug against the choices dir.
+            let resolved = resolve_numeric_slug("audit.topology", &layout.choices_dir(), id_or_path)
+                .ok()
+                .flatten();
+            let target_path = match resolved {
+                Some(slug) => layout.choice_file(&slug),
+                None => repo_root.join(id_or_path),
+            };
+            if !target_path.exists() {
+                drift.push(TopologyDriftEntry {
+                    subsystem: entry.subsystem.clone(),
+                    drift_kind: "stale_pointer".into(),
+                    detail: format!("decision_record: {id_or_path}"),
+                });
+            }
+        }
+        for path in &entry.operational_doc {
+            if !repo_root.join(path).exists() {
+                drift.push(TopologyDriftEntry {
+                    subsystem: entry.subsystem.clone(),
+                    drift_kind: "stale_pointer".into(),
+                    detail: format!("operational_doc: {path}"),
+                });
+            }
+        }
+        for path in &entry.test_surface {
+            if !repo_root.join(path).exists() {
+                drift.push(TopologyDriftEntry {
+                    subsystem: entry.subsystem.clone(),
+                    drift_kind: "stale_pointer".into(),
+                    detail: format!("test_surface: {path}"),
                 });
             }
         }
     }
 
-    // 5. missing_entry: subsystems detected in the codebase with no entry.
-    let documented: std::collections::HashSet<String> = entries
+    // 3. missing_entry: codebase subsystems with no topology entry.
+    //    Preserves the existing taxonomy entry from the predecessor
+    //    parser per envelope-shape continuity (spec ac-02).
+    let documented: std::collections::HashSet<String> = loaded
         .iter()
+        .filter_map(|(_, r)| r.as_ref().ok())
         .map(|e| e.subsystem.to_lowercase())
         .collect();
     for subsystem in detect_subsystem_dirs(repo_root) {
@@ -7012,58 +6992,45 @@ mod tests {
     }
 
     #[test]
-    fn audit_topology_not_configured_when_docs_topology_unset() {
+    fn audit_topology_not_configured_when_topology_dir_empty() {
+        // Substrate-folder shape per choice 0025: `configured` is true iff
+        // `.orbit/topology/` exists AND contains ≥ 1 entry (populated ==
+        // configured per spec `2026-05-18-topology-substrate-migration`
+        // ac-02). An empty directory reads as unconfigured. Replaces the
+        // legacy `audit_topology_not_configured_when_docs_topology_unset`
+        // and `audit_topology_stale_pointer_when_topology_doc_missing`
+        // tests (predicates no longer exist).
         let (_dir, layout) = fresh_topology_layout();
-        std::fs::write(layout.config_file(), "{}\n").unwrap();
+        layout.ensure_dirs().unwrap();
+        assert!(layout.topology_dir().exists());
+        assert!(layout.list_topology_files().unwrap().is_empty());
         let result = audit_topology(&layout, &AuditTopologyArgs::default()).unwrap();
         assert!(!result.configured);
         assert!(result.topology_drift.is_empty());
     }
 
     #[test]
-    fn audit_topology_stale_pointer_when_topology_doc_missing() {
-        let (_dir, layout) = fresh_topology_layout();
-        std::fs::write(
-            layout.config_file(),
-            "docs:\n  topology: docs/topology.md\n",
-        )
-        .unwrap();
-        let result = audit_topology(&layout, &AuditTopologyArgs::default()).unwrap();
-        assert!(result.configured);
-        assert_eq!(result.topology_drift.len(), 1);
-        assert_eq!(result.topology_drift[0].drift_kind, "stale_pointer");
-    }
-
-    #[test]
     fn audit_topology_clean_when_entries_match_codebase() {
         let (dir, layout) = fresh_topology_layout();
         let repo = dir.path();
-        // Create a subsystem dir + an authoritative file inside it so all
-        // anchors resolve.
-        std::fs::create_dir_all(repo.join("src/auth")).unwrap();
-        std::fs::write(repo.join("src/auth/mod.rs"), "// auth module\n").unwrap();
+        layout.ensure_dirs().unwrap();
+        // Create a subsystem dir + an authoritative file inside it.
+        std::fs::create_dir_all(repo.join("src/myauth")).unwrap();
+        std::fs::write(repo.join("src/myauth/mod.rs"), "// auth module\n").unwrap();
         std::fs::write(repo.join("docs-decision.md"), "# Decision\n").unwrap();
         std::fs::write(repo.join("docs-ops.md"), "# Ops\n").unwrap();
         std::fs::write(repo.join("tests-auth.rs"), "// tests\n").unwrap();
-        // Write the topology doc.
-        std::fs::create_dir_all(repo.join("docs")).unwrap();
-        let topology = "\
-# Topology
-
-## auth
-
-- code: src/auth/mod.rs
-- decision: docs-decision.md
-- operational: docs-ops.md
-- tests: tests-auth.rs
-- what: handles login and session validation
-";
-        std::fs::write(repo.join("docs/topology.md"), topology).unwrap();
-        std::fs::write(
-            layout.config_file(),
-            "docs:\n  topology: docs/topology.md\n",
-        )
-        .unwrap();
+        // Write the per-subsystem yaml entry (substrate-folder shape per
+        // choice 0025).
+        let entry = crate::schema::TopologyEntry {
+            subsystem: "myauth".into(),
+            canonical_code: vec!["src/myauth/mod.rs".into()],
+            decision_record: vec!["docs-decision.md".into()],
+            operational_doc: vec!["docs-ops.md".into()],
+            test_surface: vec!["tests-auth.rs".into()],
+        };
+        std::fs::write(layout.topology_file("myauth"), serialise_yaml(&entry).unwrap())
+            .unwrap();
         let result = audit_topology(&layout, &AuditTopologyArgs::default()).unwrap();
         assert!(result.configured);
         assert!(
@@ -7077,25 +7044,20 @@ mod tests {
     fn audit_topology_detects_stale_pointer_in_entry() {
         let (dir, layout) = fresh_topology_layout();
         let repo = dir.path();
-        std::fs::create_dir_all(repo.join("src/auth")).unwrap();
-        std::fs::write(repo.join("src/auth/mod.rs"), "// auth\n").unwrap();
-        std::fs::create_dir_all(repo.join("docs")).unwrap();
-        // decision: points at a path that doesn't exist
-        let topology = "\
-## auth
-
-- code: src/auth/mod.rs
-- decision: nonexistent.md
-- operational: missing-too.md
-- tests: also-missing.rs
-- what: handles login
-";
-        std::fs::write(repo.join("docs/topology.md"), topology).unwrap();
-        std::fs::write(
-            layout.config_file(),
-            "docs:\n  topology: docs/topology.md\n",
-        )
-        .unwrap();
+        layout.ensure_dirs().unwrap();
+        // canonical_code resolves; decision_record / operational_doc /
+        // test_surface dangle → 3 stale_pointer entries.
+        std::fs::create_dir_all(repo.join("src/myauth")).unwrap();
+        std::fs::write(repo.join("src/myauth/mod.rs"), "// auth\n").unwrap();
+        let entry = crate::schema::TopologyEntry {
+            subsystem: "myauth".into(),
+            canonical_code: vec!["src/myauth/mod.rs".into()],
+            decision_record: vec!["nonexistent.md".into()],
+            operational_doc: vec!["missing-too.md".into()],
+            test_surface: vec!["also-missing.rs".into()],
+        };
+        std::fs::write(layout.topology_file("myauth"), serialise_yaml(&entry).unwrap())
+            .unwrap();
         let result = audit_topology(&layout, &AuditTopologyArgs::default()).unwrap();
         assert!(result.configured);
         let stale: Vec<_> = result
@@ -7107,34 +7069,33 @@ mod tests {
     }
 
     #[test]
-    fn audit_topology_detects_shape_drift_when_anchors_missing() {
-        let (dir, layout) = fresh_topology_layout();
-        let repo = dir.path();
-        std::fs::create_dir_all(repo.join("docs")).unwrap();
-        // Only two of five anchors present.
-        let topology = "\
-## auth
-
-- code: src/auth/mod.rs
-- what: handles login
+    fn audit_topology_detects_invalid_field_on_validate_failure() {
+        // Replaces the legacy `audit_topology_detects_shape_drift_when_anchors_missing`
+        // test. Under the substrate-folder shape (choice 0025), `shape_drift`
+        // by missing-markdown-anchor is replaced by serde+validate failures
+        // surfaced as `invalid_field` / `parse_failed` drift codes.
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        // Write a syntactically valid yaml whose subsystem slug is below
+        // the MIN_SUBSYSTEM_LEN threshold (4 chars; min is 5). Round-trip
+        // succeeds; validate() fails.
+        let bad_yaml = "\
+subsystem: auth
+canonical_code:
+- src/x.rs
 ";
-        std::fs::write(repo.join("docs/topology.md"), topology).unwrap();
-        std::fs::write(
-            layout.config_file(),
-            "docs:\n  topology: docs/topology.md\n",
-        )
-        .unwrap();
+        std::fs::write(layout.topology_file("auth"), bad_yaml).unwrap();
         let result = audit_topology(&layout, &AuditTopologyArgs::default()).unwrap();
-        let shape: Vec<_> = result
+        assert!(result.configured, "non-empty topology dir is configured");
+        let invalid: Vec<_> = result
             .topology_drift
             .iter()
-            .filter(|d| d.drift_kind == "shape_drift")
+            .filter(|d| d.drift_kind == "invalid_field")
             .collect();
-        // Missing: decision, operational, tests (3 missing anchors)
-        assert_eq!(
-            shape.len(),
-            3,
-            "expected 3 missing anchors, got {shape:?}"
+        assert!(
+            !invalid.is_empty(),
+            "expected at least one invalid_field drift entry, got {:?}",
+            result.topology_drift
         );
     }
 
@@ -7142,29 +7103,20 @@ mod tests {
     fn audit_topology_detects_missing_entry_for_undocumented_subsystem() {
         let (dir, layout) = fresh_topology_layout();
         let repo = dir.path();
+        layout.ensure_dirs().unwrap();
         // Two subsystems in the codebase, one undocumented.
-        std::fs::create_dir_all(repo.join("src/auth")).unwrap();
+        std::fs::create_dir_all(repo.join("src/myauth")).unwrap();
         std::fs::create_dir_all(repo.join("src/ingest")).unwrap();
-        std::fs::create_dir_all(repo.join("docs")).unwrap();
-        // Topology doc only covers `auth`.
-        let topology = "\
-## auth
-
-- code: src/auth
-- decision: docs-d.md
-- operational: docs-o.md
-- tests: tests.rs
-- what: auth subsystem
-";
-        std::fs::write(repo.join("docs/topology.md"), topology).unwrap();
-        std::fs::write(repo.join("docs-d.md"), "x").unwrap();
-        std::fs::write(repo.join("docs-o.md"), "x").unwrap();
-        std::fs::write(repo.join("tests.rs"), "x").unwrap();
-        std::fs::write(
-            layout.config_file(),
-            "docs:\n  topology: docs/topology.md\n",
-        )
-        .unwrap();
+        // Topology entry only covers `myauth`.
+        let entry = crate::schema::TopologyEntry {
+            subsystem: "myauth".into(),
+            canonical_code: vec!["src/myauth".into()],
+            decision_record: vec![],
+            operational_doc: vec![],
+            test_surface: vec![],
+        };
+        std::fs::write(layout.topology_file("myauth"), serialise_yaml(&entry).unwrap())
+            .unwrap();
         let result = audit_topology(&layout, &AuditTopologyArgs::default()).unwrap();
         let missing: Vec<_> = result
             .topology_drift
@@ -7193,29 +7145,29 @@ mod tests {
     // Tests for spec 2026-05-18-topology-substrate-wires
     // ============================================================
 
-    /// Build a topology config + doc at the layout root with the given
-    /// subsystems wired (all anchors resolve to the same path, so no
-    /// stale_pointer drift).
+    /// Build a `.orbit/topology/<subsystem>.yaml` per requested subsystem
+    /// with every pointer resolved against a created path under `src/` so
+    /// audit_topology stays clean. Substrate-folder shape per choice 0025.
     fn install_topology(layout: &OrbitLayout, subsystems: &[&str]) {
         let repo = layout.root.parent().unwrap();
-        std::fs::create_dir_all(repo.join("docs")).unwrap();
-        let mut topology = String::from("# Topology\n\n");
-        // Ensure each anchor target exists so audit_topology stays clean.
         std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::create_dir_all(layout.topology_dir()).unwrap();
         for s in subsystems {
             std::fs::create_dir_all(repo.join(format!("src/{s}"))).unwrap();
             std::fs::write(repo.join(format!("src/{s}/mod.rs")), "// mod\n").unwrap();
-            topology.push_str(&format!(
-                "## {s}\n\n- code: src/{s}/mod.rs\n- decision: src/{s}/mod.rs\n- operational: src/{s}/mod.rs\n- tests: src/{s}/mod.rs\n- what: subsystem {s}\n\n",
-                s = s,
-            ));
+            let entry = crate::schema::TopologyEntry {
+                subsystem: (*s).into(),
+                canonical_code: vec![format!("src/{s}/mod.rs")],
+                decision_record: vec![],
+                operational_doc: vec![],
+                test_surface: vec![],
+            };
+            std::fs::write(
+                layout.topology_file(s),
+                serialise_yaml(&entry).unwrap(),
+            )
+            .unwrap();
         }
-        std::fs::write(repo.join("docs/topology.md"), topology).unwrap();
-        std::fs::write(
-            layout.config_file(),
-            "docs:\n  topology: docs/topology.md\n",
-        )
-        .unwrap();
     }
 
     // ----- ac-02: session_prime topology_drift -----
@@ -7233,16 +7185,19 @@ mod tests {
     }
 
     #[test]
-    fn session_prime_topology_drift_none_when_docs_topology_unset() {
-        // ac-02 4th case: config file present but docs.topology unset →
-        // configured == false → topology_drift key absent.
+    fn session_prime_topology_drift_none_when_topology_dir_empty() {
+        // Substrate-folder shape per choice 0025: empty .orbit/topology/
+        // reads as unconfigured → topology_drift key absent. Replaces the
+        // legacy `session_prime_topology_drift_none_when_docs_topology_unset`
+        // test (predicate no longer exists).
         let (_dir, layout) = fresh_topology_layout();
         layout.ensure_dirs().unwrap();
-        std::fs::write(layout.config_file(), "{}\n").unwrap();
+        assert!(layout.topology_dir().exists());
+        assert!(layout.list_topology_files().unwrap().is_empty());
         let resp = session_prime(&layout, &SessionPrimeArgs::default()).unwrap();
         assert!(
             resp.topology_drift.is_none(),
-            "expected None on config-present-but-docs.topology-absent, got {:?}",
+            "expected None on empty-topology-dir, got {:?}",
             resp.topology_drift
         );
     }
@@ -7251,7 +7206,7 @@ mod tests {
     fn session_prime_topology_drift_some_empty_when_configured_clean() {
         let (_dir, layout) = fresh_topology_layout();
         layout.ensure_dirs().unwrap();
-        install_topology(&layout, &["auth"]);
+        install_topology(&layout, &["myauth"]);
         let resp = session_prime(&layout, &SessionPrimeArgs::default()).unwrap();
         match resp.topology_drift {
             Some(d) => assert!(d.is_empty(), "expected empty drift, got {d:?}"),
@@ -7264,22 +7219,27 @@ mod tests {
         let (_dir, layout) = fresh_topology_layout();
         layout.ensure_dirs().unwrap();
         let repo = layout.root.parent().unwrap();
-        // Topology covers `auth` but codebase also has `ingest` → missing_entry.
-        std::fs::create_dir_all(repo.join("src/auth")).unwrap();
+        // Topology covers `myauth` but codebase also has `ingest` → missing_entry.
+        std::fs::create_dir_all(repo.join("src/myauth")).unwrap();
         std::fs::create_dir_all(repo.join("src/ingest")).unwrap();
-        std::fs::write(repo.join("src/auth/mod.rs"), "// auth\n").unwrap();
-        std::fs::create_dir_all(repo.join("docs")).unwrap();
-        let topology = "## auth\n\n- code: src/auth/mod.rs\n- decision: src/auth/mod.rs\n- operational: src/auth/mod.rs\n- tests: src/auth/mod.rs\n- what: auth\n";
-        std::fs::write(repo.join("docs/topology.md"), topology).unwrap();
-        std::fs::write(
-            layout.config_file(),
-            "docs:\n  topology: docs/topology.md\n",
-        )
-        .unwrap();
+        std::fs::write(repo.join("src/myauth/mod.rs"), "// myauth\n").unwrap();
+        let entry = crate::schema::TopologyEntry {
+            subsystem: "myauth".into(),
+            canonical_code: vec!["src/myauth/mod.rs".into()],
+            decision_record: vec![],
+            operational_doc: vec![],
+            test_surface: vec![],
+        };
+        std::fs::write(layout.topology_file("myauth"), serialise_yaml(&entry).unwrap())
+            .unwrap();
         let resp = session_prime(&layout, &SessionPrimeArgs::default()).unwrap();
         let drift = resp.topology_drift.expect("Some when configured");
         assert!(!drift.is_empty(), "expected populated drift");
-        assert!(drift.iter().any(|d| d.subsystem == "ingest" && d.drift_kind == "missing_entry"));
+        assert!(
+            drift
+                .iter()
+                .any(|d| d.subsystem == "ingest" && d.drift_kind == "missing_entry")
+        );
     }
 
     // ----- ac-03: spec.close topology_warnings -----
@@ -7310,17 +7270,17 @@ mod tests {
     fn spec_close_topology_warnings_populated_on_word_boundary_match() {
         let (_dir, layout) = fresh_topology_layout();
         layout.ensure_dirs().unwrap();
-        install_topology(&layout, &["session_prime"]);
+        install_topology(&layout, &["session-prime"]);
         install_spec_for_warnings(
             &layout,
             "0001",
-            "Adding a topology_drift field to session_prime envelope.",
+            "Adding a topology_drift field to session-prime envelope.",
             None,
             None,
         );
         let result = spec_close(&layout, &SpecCloseArgs { id: "0001".into(), force: false }).unwrap();
         assert!(
-            result.topology_warnings.iter().any(|w| w.subsystem == "session_prime"),
+            result.topology_warnings.iter().any(|w| w.subsystem == "session-prime"),
             "expected session_prime warning, got {:?}",
             result.topology_warnings
         );
@@ -7330,19 +7290,19 @@ mod tests {
     fn spec_close_topology_warnings_empty_on_substring_only() {
         let (_dir, layout) = fresh_topology_layout();
         layout.ensure_dirs().unwrap();
-        install_topology(&layout, &["session_prime"]);
+        install_topology(&layout, &["session-prime"]);
         // Substring (no word boundaries — "session_primer" contains
         // "session_prime" as a substring but not on word boundaries).
         install_spec_for_warnings(
             &layout,
             "0002",
-            "Spec touches the session_primer module which is unrelated.",
+            "Spec touches the session-primer module which is unrelated.",
             None,
             None,
         );
         let result = spec_close(&layout, &SpecCloseArgs { id: "0002".into(), force: false }).unwrap();
         assert!(
-            !result.topology_warnings.iter().any(|w| w.subsystem == "session_prime"),
+            !result.topology_warnings.iter().any(|w| w.subsystem == "session-prime"),
             "substring should not match: {:?}",
             result.topology_warnings
         );
@@ -7376,73 +7336,31 @@ mod tests {
         // just spec.yaml + interview.md.
         let (_dir, layout) = fresh_topology_layout();
         layout.ensure_dirs().unwrap();
-        install_topology(&layout, &["session_prime"]);
+        install_topology(&layout, &["session-prime"]);
         install_spec_for_warnings(
             &layout,
             "0004",
             "Goal text mentions nothing relevant.",
             Some("# Interview\n\nNo subsystem names here.\n"),
-            Some("# Design Note\n\nThis pinned approach extends session_prime.\n"),
+            Some("# Design Note\n\nThis pinned approach extends session-prime.\n"),
         );
         let result = spec_close(&layout, &SpecCloseArgs { id: "0004".into(), force: false }).unwrap();
         assert!(
-            result.topology_warnings.iter().any(|w| w.subsystem == "session_prime"),
+            result.topology_warnings.iter().any(|w| w.subsystem == "session-prime"),
             "design-note.md must be scanned: {:?}",
             result.topology_warnings
         );
     }
 
-    #[test]
-    fn spec_close_topology_warnings_regex_escape_on_metachars() {
-        // ac-03 cycle-2 LOW carried from parent: regex::escape must be
-        // applied to subsystem names so metacharacters match literally.
-        // Without escape, `foo.bar` would match `fooXbar` (any character)
-        // because `.` is a regex wildcard.
-        let (_dir, layout) = fresh_topology_layout();
-        layout.ensure_dirs().unwrap();
-        let repo = layout.root.parent().unwrap();
-        // Install a topology entry with a metachar-bearing subsystem name.
-        // Anchors point at the repo root so they resolve.
-        std::fs::create_dir_all(repo.join("docs")).unwrap();
-        let topology = "## foo.bar\n\n- code: docs/topology.md\n- decision: docs/topology.md\n- operational: docs/topology.md\n- tests: docs/topology.md\n- what: meta-charged subsystem\n";
-        std::fs::write(repo.join("docs/topology.md"), topology).unwrap();
-        std::fs::write(
-            layout.config_file(),
-            "docs:\n  topology: docs/topology.md\n",
-        )
-        .unwrap();
-
-        // Literal "foo.bar" present — must match.
-        install_spec_for_warnings(
-            &layout,
-            "0005",
-            "We have foo.bar in the spec text.",
-            None,
-            None,
-        );
-        let result = spec_close(&layout, &SpecCloseArgs { id: "0005".into(), force: false }).unwrap();
-        assert!(
-            result.topology_warnings.iter().any(|w| w.subsystem == "foo.bar"),
-            "literal foo.bar should match: {:?}",
-            result.topology_warnings
-        );
-
-        // Different spec — "fooXbar" present, "foo.bar" not. Without
-        // regex::escape, the `.` would be a wildcard and match the X.
-        install_spec_for_warnings(
-            &layout,
-            "0006",
-            "We have fooXbar in the spec text but not the literal name.",
-            None,
-            None,
-        );
-        let result = spec_close(&layout, &SpecCloseArgs { id: "0006".into(), force: false }).unwrap();
-        assert!(
-            !result.topology_warnings.iter().any(|w| w.subsystem == "foo.bar"),
-            "fooXbar must NOT match foo.bar — proves regex::escape is applied: {:?}",
-            result.topology_warnings
-        );
-    }
+    // The legacy `spec_close_topology_warnings_regex_escape_on_metachars`
+    // test (foo.bar subsystem) was removed under the substrate-folder
+    // migration: choice 0025's schema (`TopologyEntry::validate`) constrains
+    // subsystem slugs to lowercase letters, digits, and hyphens — `.`,
+    // `_`, `/` are now rejected at parse/validate time, so a
+    // metacharacter-bearing subsystem cannot reach `compute_topology_warnings`.
+    // The `regex::escape` call in that helper is preserved as defence-in-
+    // depth (a no-op on slug-valid names) but no longer testable through
+    // a constructable fixture.
 
     #[test]
     fn spec_close_topology_warnings_empty_when_not_configured() {

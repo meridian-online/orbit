@@ -526,16 +526,14 @@ fn session_prime_mcp_topology_drift_omitted_when_docs_topology_unset() {
 
 #[test]
 fn session_prime_mcp_topology_drift_empty_array_when_clean() {
+    // Substrate-folder shape per choice 0025.
     let dir = tempfile::tempdir().unwrap();
     let orbit_dir = dir.path().join(".orbit");
-    std::fs::create_dir_all(&orbit_dir).unwrap();
-    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
-    std::fs::write(
-        orbit_dir.join("config.yaml"),
-        "docs:\n  topology: docs/topology.md\n",
-    )
-    .unwrap();
-    std::fs::write(dir.path().join("docs/topology.md"), "# Topology\n").unwrap();
+    std::fs::create_dir_all(orbit_dir.join("topology")).unwrap();
+    std::fs::create_dir_all(dir.path().join("src/myauth")).unwrap();
+    std::fs::write(dir.path().join("src/myauth/mod.rs"), "// mod\n").unwrap();
+    let entry_yaml = "subsystem: myauth\ncanonical_code:\n- src/myauth/mod.rs\n";
+    std::fs::write(orbit_dir.join("topology/myauth.yaml"), entry_yaml).unwrap();
     let inner = run_mcp_tools_call(
         dir.path(),
         json!({ "name": "session.prime", "arguments": {} }),
@@ -557,15 +555,12 @@ fn session_prime_mcp_topology_drift_empty_array_when_clean() {
 fn session_prime_mcp_topology_drift_populated_when_drift_present() {
     let dir = tempfile::tempdir().unwrap();
     let orbit_dir = dir.path().join(".orbit");
-    std::fs::create_dir_all(&orbit_dir).unwrap();
-    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
-    std::fs::create_dir_all(dir.path().join("src/auth")).unwrap();
-    std::fs::write(
-        orbit_dir.join("config.yaml"),
-        "docs:\n  topology: docs/topology.md\n",
-    )
-    .unwrap();
-    std::fs::write(dir.path().join("docs/topology.md"), "# Topology\n").unwrap();
+    std::fs::create_dir_all(orbit_dir.join("topology")).unwrap();
+    std::fs::create_dir_all(dir.path().join("src/myauth")).unwrap();
+    std::fs::create_dir_all(dir.path().join("src/ingest")).unwrap();
+    std::fs::write(dir.path().join("src/myauth/mod.rs"), "// mod\n").unwrap();
+    let entry_yaml = "subsystem: myauth\ncanonical_code:\n- src/myauth/mod.rs\n";
+    std::fs::write(orbit_dir.join("topology/myauth.yaml"), entry_yaml).unwrap();
     let inner = run_mcp_tools_call(
         dir.path(),
         json!({ "name": "session.prime", "arguments": {} }),
@@ -574,9 +569,12 @@ fn session_prime_mcp_topology_drift_populated_when_drift_present() {
     let envelope: Value = serde_json::from_str(&envelope_text).unwrap();
     let result = &envelope["data"]["result"];
     let drift = result["topology_drift"].as_array().expect("array");
-    assert_eq!(drift.len(), 1);
-    assert_eq!(drift[0]["subsystem"], "auth");
-    assert_eq!(drift[0]["drift_kind"], "missing_entry");
+    assert!(
+        drift
+            .iter()
+            .any(|d| d["subsystem"] == "ingest" && d["drift_kind"] == "missing_entry"),
+        "expected ingest/missing_entry, got {drift:?}",
+    );
 }
 
 // ----- ac-03: spec.close topology_warnings -----
@@ -587,23 +585,18 @@ fn spec_close_mcp_topology_warnings_populated_on_word_boundary_match() {
     let orbit_dir = dir.path().join(".orbit");
     std::fs::create_dir_all(orbit_dir.join("specs/0001")).unwrap();
     std::fs::create_dir_all(orbit_dir.join("cards")).unwrap();
-    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
-    std::fs::create_dir_all(dir.path().join("src/session_prime")).unwrap();
+    std::fs::create_dir_all(orbit_dir.join("topology")).unwrap();
+    std::fs::create_dir_all(dir.path().join("src/session-prime")).unwrap();
     std::fs::write(
-        dir.path().join("src/session_prime/mod.rs"),
+        dir.path().join("src/session-prime/mod.rs"),
         "// mod\n",
     )
     .unwrap();
 
-    let topology = "## session_prime\n\n- code: src/session_prime/mod.rs\n- decision: src/session_prime/mod.rs\n- operational: src/session_prime/mod.rs\n- tests: src/session_prime/mod.rs\n- what: session prime envelope verb\n";
-    std::fs::write(dir.path().join("docs/topology.md"), topology).unwrap();
-    std::fs::write(
-        orbit_dir.join("config.yaml"),
-        "docs:\n  topology: docs/topology.md\n",
-    )
-    .unwrap();
+    let entry_yaml = "subsystem: session-prime\ncanonical_code:\n- src/session-prime/mod.rs\n";
+    std::fs::write(orbit_dir.join("topology/session-prime.yaml"), entry_yaml).unwrap();
 
-    let spec_yaml = "id: \"0001\"\ngoal: Adding a topology_drift field to session_prime envelope.\ncards: []\nstatus: open\nlabels: []\nacceptance_criteria: []\n";
+    let spec_yaml = "id: \"0001\"\ngoal: Adding a topology_drift field to session-prime envelope.\ncards: []\nstatus: open\nlabels: []\nacceptance_criteria: []\n";
     std::fs::write(orbit_dir.join("specs/0001/spec.yaml"), spec_yaml).unwrap();
 
     let inner = run_mcp_tools_call(
@@ -615,8 +608,8 @@ fn spec_close_mcp_topology_warnings_populated_on_word_boundary_match() {
     let result = &envelope["data"]["result"];
     let warnings = result["topology_warnings"].as_array().expect("array");
     assert!(
-        warnings.iter().any(|w| w["subsystem"] == "session_prime"),
-        "expected session_prime warning on MCP envelope, got {warnings:?}",
+        warnings.iter().any(|w| w["subsystem"] == "session-prime"),
+        "expected session-prime warning on MCP envelope, got {warnings:?}",
     );
 }
 
