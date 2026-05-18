@@ -239,6 +239,11 @@ enum MemoryAction {
         labels: Vec<String>,
         #[arg(long)]
         timestamp: Option<String>,
+        /// Suppress the topology-label nudge even when the labels list
+        /// includes `topology`. Per spec 2026-05-18-topology-substrate-wires
+        /// ac-04.
+        #[arg(long = "no-nudge")]
+        no_nudge: bool,
     },
     /// List all memories.
     List,
@@ -961,11 +966,13 @@ fn build_request(layout: &OrbitLayout, command: &Command) -> Result<VerbRequest,
                 body,
                 labels,
                 timestamp,
+                no_nudge,
             } => VerbRequest::MemoryRemember(MemoryRememberArgs {
                 key: key.clone(),
                 body: body.clone(),
                 labels: labels.clone(),
                 timestamp: timestamp.clone(),
+                no_nudge: *no_nudge,
             }),
             MemoryAction::List => VerbRequest::MemoryList(MemoryListArgs::default()),
             MemoryAction::Search { query } => VerbRequest::MemorySearch(MemorySearchArgs {
@@ -1227,6 +1234,12 @@ fn render_session_prime(result: &SessionPrimeResult) {
 
 fn render_memory_remember(result: &MemoryRememberResult) {
     println!("remembered: {} ({})", result.memory.key, result.memory.timestamp);
+    // Topology-label nudge — render to stderr (advisory channel; stdout
+    // is reserved for the primary verb output). Per spec
+    // 2026-05-18-topology-substrate-wires ac-04.
+    if let Some(nudge) = &result.nudge {
+        eprintln!("{nudge}");
+    }
 }
 
 fn render_memory_list(result: &MemoryListResult) {

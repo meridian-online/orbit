@@ -305,6 +305,12 @@ pub struct MemoryRememberArgs {
     pub labels: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
+    /// Suppress the topology-label nudge even when the labels list
+    /// includes `topology`. Per spec 2026-05-18-topology-substrate-wires
+    /// ac-04. Defaults to false; mirrors the `--no-edit` / `--no-verify`
+    /// naming convention.
+    #[serde(default)]
+    pub no_nudge: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -698,11 +704,27 @@ pub struct SpecCloseResult {
     pub forced_unchecked: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deferrable_open: Vec<String>,
+    /// Topology drift entries for subsystems the closing spec text touched.
+    /// Word-boundary match (regex `\b<regex::escape(subsystem)>\b`,
+    /// case-insensitive) of subsystem names ≥ 5 characters against the
+    /// concatenation of `spec.yaml + interview.md + design-note.md`
+    /// (each sidecar included when present). Non-blocking — closure
+    /// proceeds with exit 0; this field is informational. Empty (and
+    /// `skip_serializing_if`-omitted) when not configured or when no
+    /// matches exist. Per spec 2026-05-18-topology-substrate-wires ac-03.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topology_warnings: Vec<TopologyDriftEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MemoryRememberResult {
     pub memory: Memory,
+    /// Advisory nudge populated when the stored memory carried the
+    /// canonical `topology` label and the caller did not pass
+    /// `--no-nudge`. Non-blocking — the memory still stored. Per spec
+    /// 2026-05-18-topology-substrate-wires ac-04.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nudge: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -928,6 +950,15 @@ pub struct SessionPrimeResult {
     /// other action. "`) is joined onto the front so the next agent reads
     /// the handover before the overview.
     pub next_step: String,
+    /// Topology drift entries surfaced at session start. `Some` whenever
+    /// the topology capability is configured (`audit_topology(...).configured == true`,
+    /// i.e. `.orbit/config.yaml` exists AND `docs.topology` is set) —
+    /// `Some(vec![])` for the configured + clean case, `Some(non-empty)`
+    /// when drift is present. `None` (key omitted via
+    /// `skip_serializing_if`) when the topology capability is not
+    /// configured. Per spec 2026-05-18-topology-substrate-wires ac-02.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology_drift: Option<Vec<TopologyDriftEntry>>,
 }
 
 /// Result for `session.start` — echoes the session id written to disk.
@@ -1592,12 +1623,74 @@ fn spec_close(layout: &OrbitLayout, args: &SpecCloseArgs) -> Result<SpecCloseRes
         .map(|u| u.slug.clone())
         .collect();
 
+    // Topology warnings surface (spec 2026-05-18-topology-substrate-wires
+    // ac-03). Concatenate the spec's substantive sidecars
+    // (spec.yaml + interview.md + design-note.md, each when present),
+    // and word-boundary-match each topology-doc subsystem name against
+    // the concatenation. Subsystem names < 5 characters are excluded to
+    // suppress false-positives on short common tokens. Names are passed
+    // through regex::escape before \b...\b interpolation so
+    // metacharacters (dots, hyphens, slashes) match literally. Best
+    // effort: a malformed config or unreadable sidecar yields no
+    // warnings rather than failing the close.
+    let topology_warnings = compute_topology_warnings(layout, &spec.id);
+
     Ok(SpecCloseResult {
         spec,
         cards_updated,
         forced_unchecked,
         deferrable_open,
+        topology_warnings,
     })
+}
+
+/// Per ac-03: subsystem-name word-boundary scan across the spec's
+/// substantive sidecars. Returns empty when the topology capability is
+/// not configured or when no matches exist. Errors swallowed (this is
+/// an advisory surface, not a blocking gate).
+fn compute_topology_warnings(layout: &OrbitLayout, spec_id: &str) -> Vec<TopologyDriftEntry> {
+    let subsystems = load_topology_subsystem_names(layout);
+    if subsystems.is_empty() {
+        return Vec::new();
+    }
+
+    let spec_dir = layout.spec_dir(spec_id);
+    let mut text = String::new();
+    for sidecar in &["spec.yaml", "interview.md", "design-note.md"] {
+        let path = spec_dir.join(sidecar);
+        if let Ok(body) = std::fs::read_to_string(&path) {
+            text.push_str(&body);
+            text.push('\n');
+        }
+    }
+    if text.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out: Vec<TopologyDriftEntry> = Vec::new();
+    for subsystem in subsystems {
+        // Length filter — suppress false-positives on short common tokens
+        // (memo, spec, ac, ...).
+        if subsystem.chars().count() < 5 {
+            continue;
+        }
+        // regex::escape before \b...\b interpolation — subsystem names
+        // may contain metacharacters (dots, hyphens, slashes). Case-
+        // insensitive via the (?i) inline flag.
+        let pattern = format!(r"(?i)\b{}\b", regex::escape(&subsystem));
+        let re = match regex::Regex::new(&pattern) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        if re.is_match(&text) {
+            out.push(TopologyDriftEntry {
+                subsystem,
+                drift_kind: "spec_touch".into(),
+                detail: String::new(),
+            });
+        }
+    }
+    out
 }
 
 /// In-memory record of one card's pre/post image during spec.close.
@@ -2114,6 +2207,12 @@ fn stamp_or(verb: &str, supplied: &Option<String>) -> Result<String> {
 // Memory verbs (ac-08) — substrate-written entities; cross-session/cross-machine via git.
 // ============================================================================
 
+/// Canonical topology-label nudge text — emitted on the
+/// `MemoryRememberResult.nudge` field when the stored memory carries
+/// the `topology` label and `--no-nudge` is not set. Per spec
+/// 2026-05-18-topology-substrate-wires ac-04.
+pub const TOPOLOGY_NUDGE: &str = "consider /orb:topology — labelled memories often correspond to subsystems that should be added or updated in the topology doc";
+
 fn memory_remember(layout: &OrbitLayout, args: &MemoryRememberArgs) -> Result<MemoryRememberResult> {
     const VERB: &str = "memory.remember";
     validate_memory_key(VERB, &args.key)?;
@@ -2146,7 +2245,17 @@ fn memory_remember(layout: &OrbitLayout, args: &MemoryRememberArgs) -> Result<Me
         e.verb = VERB.into();
         e
     })?;
-    Ok(MemoryRememberResult { memory })
+
+    // Topology-label nudge (ac-04). Fires only when the labels list
+    // contains the canonical `topology` label AND the caller did not
+    // pass `--no-nudge`. Non-blocking — the memory has already stored.
+    let nudge = if !args.no_nudge && args.labels.iter().any(|l| l == "topology") {
+        Some(TOPOLOGY_NUDGE.to_string())
+    } else {
+        None
+    };
+
+    Ok(MemoryRememberResult { memory, nudge })
 }
 
 fn memory_list(layout: &OrbitLayout, _args: &MemoryListArgs) -> Result<MemoryListResult> {
@@ -2863,6 +2972,45 @@ fn detect_subsystem_dirs(repo_root: &Path) -> Vec<String> {
     names.into_iter().collect()
 }
 
+/// Load the parsed topology entries from the doc named by `docs.topology`.
+/// Returns an empty vec when the topology capability is not configured or
+/// when the topology doc is missing — callers that need the configured /
+/// not-configured distinction should call `audit_topology` instead.
+///
+/// Per spec 2026-05-18-topology-substrate-wires ac-03 — shared helper used
+/// by `spec_close`'s topology_warnings heuristic. The audit_topology
+/// function consumes the same parse internally but returns drift entries,
+/// not the source entries, so it isn't reusable here without exposing the
+/// internal shape.
+fn load_topology_subsystem_names(layout: &OrbitLayout) -> Vec<String> {
+    let config_path = layout.config_file();
+    if !config_path.exists() {
+        return Vec::new();
+    }
+    let config_text = match std::fs::read_to_string(&config_path) {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    let config: crate::schema::Config = match serde_yaml::from_str(&config_text) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let topology_rel = match config.docs.as_ref().and_then(|d| d.topology.as_ref()) {
+        Some(p) => p.clone(),
+        None => return Vec::new(),
+    };
+    let repo_root = layout.root.parent().unwrap_or(&layout.root);
+    let topology_path = repo_root.join(&topology_rel);
+    let topology_text = match std::fs::read_to_string(&topology_path) {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    parse_topology_doc(&topology_text)
+        .into_iter()
+        .map(|e| e.subsystem)
+        .collect()
+}
+
 fn audit_topology(
     layout: &OrbitLayout,
     _args: &AuditTopologyArgs,
@@ -3394,12 +3542,27 @@ fn session_prime(layout: &OrbitLayout, args: &SessionPrimeArgs) -> Result<Sessio
         base_next_step.to_string()
     };
 
+    // Topology drift surface (spec 2026-05-18-topology-substrate-wires
+    // ac-02). The audit returns `configured: false` when `.orbit/config.yaml`
+    // is absent OR when `docs.topology` is unset — both cases collapse to
+    // None on the envelope side (skip-on-default). When configured, Some
+    // is populated even on the clean path (empty vec → empty array in
+    // the envelope, which is the agreed shape distinguishing
+    // configured-clean from not-configured).
+    let topology_audit = audit_topology(layout, &AuditTopologyArgs::default())?;
+    let topology_drift = if topology_audit.configured {
+        Some(topology_audit.topology_drift)
+    } else {
+        None
+    };
+
     Ok(SessionPrimeResult {
         open_specs,
         memories,
         handover,
         item_bound,
         next_step,
+        topology_drift,
     })
 }
 
@@ -5141,6 +5304,7 @@ mod tests {
                 body: "recut at Claude-pace".into(),
                 labels: vec!["methodology".into()],
                 timestamp: Some("2026-05-07T12:00:00Z".into()),
+                no_nudge: false,
             }),
         )
         .unwrap();
@@ -5162,6 +5326,7 @@ mod tests {
                 body: "v1".into(),
                 labels: vec![],
                 timestamp: Some("2026-05-07T12:00:00Z".into()),
+                no_nudge: false,
             }),
         )
         .unwrap();
@@ -5172,6 +5337,7 @@ mod tests {
                 body: "v2".into(),
                 labels: vec![],
                 timestamp: Some("2026-05-07T12:00:01Z".into()),
+                no_nudge: false,
             }),
         )
         .unwrap();
@@ -6710,6 +6876,7 @@ mod tests {
                 body: "matches foo".into(),
                 labels: vec!["foo".into()],
                 timestamp: Some("2026-05-01T00:00:00Z".into()),
+                no_nudge: false,
             },
         )
         .unwrap();
@@ -6720,6 +6887,7 @@ mod tests {
                 body: "no overlap".into(),
                 labels: vec!["unrelated".into()],
                 timestamp: Some("2026-05-14T00:00:00Z".into()),
+                no_nudge: false,
             },
         )
         .unwrap();
@@ -6756,6 +6924,7 @@ mod tests {
                 body: "x".into(),
                 labels: vec!["a".into()],
                 timestamp: Some("2026-05-01T00:00:00Z".into()),
+                no_nudge: false,
             },
         )
         .unwrap();
@@ -6766,6 +6935,7 @@ mod tests {
                 body: "x".into(),
                 labels: vec!["b".into()],
                 timestamp: Some("2026-05-14T00:00:00Z".into()),
+                no_nudge: false,
             },
         )
         .unwrap();
@@ -6799,6 +6969,7 @@ mod tests {
                 body: "x".into(),
                 labels: vec!["foo".into()],
                 timestamp: Some("2026-05-01T00:00:00Z".into()),
+                no_nudge: false,
             },
         )
         .unwrap();
@@ -6809,6 +6980,7 @@ mod tests {
                 body: "x".into(),
                 labels: vec!["bar".into()],
                 timestamp: Some("2026-05-14T00:00:00Z".into()),
+                no_nudge: false,
             },
         )
         .unwrap();
@@ -7015,5 +7187,358 @@ mod tests {
             }
             other => panic!("expected AuditTopology, got {other:?}"),
         }
+    }
+
+    // ============================================================
+    // Tests for spec 2026-05-18-topology-substrate-wires
+    // ============================================================
+
+    /// Build a topology config + doc at the layout root with the given
+    /// subsystems wired (all anchors resolve to the same path, so no
+    /// stale_pointer drift).
+    fn install_topology(layout: &OrbitLayout, subsystems: &[&str]) {
+        let repo = layout.root.parent().unwrap();
+        std::fs::create_dir_all(repo.join("docs")).unwrap();
+        let mut topology = String::from("# Topology\n\n");
+        // Ensure each anchor target exists so audit_topology stays clean.
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        for s in subsystems {
+            std::fs::create_dir_all(repo.join(format!("src/{s}"))).unwrap();
+            std::fs::write(repo.join(format!("src/{s}/mod.rs")), "// mod\n").unwrap();
+            topology.push_str(&format!(
+                "## {s}\n\n- code: src/{s}/mod.rs\n- decision: src/{s}/mod.rs\n- operational: src/{s}/mod.rs\n- tests: src/{s}/mod.rs\n- what: subsystem {s}\n\n",
+                s = s,
+            ));
+        }
+        std::fs::write(repo.join("docs/topology.md"), topology).unwrap();
+        std::fs::write(
+            layout.config_file(),
+            "docs:\n  topology: docs/topology.md\n",
+        )
+        .unwrap();
+    }
+
+    // ----- ac-02: session_prime topology_drift -----
+
+    #[test]
+    fn session_prime_topology_drift_none_when_config_absent() {
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        let resp = session_prime(&layout, &SessionPrimeArgs::default()).unwrap();
+        assert!(
+            resp.topology_drift.is_none(),
+            "expected None (key omitted), got {:?}",
+            resp.topology_drift
+        );
+    }
+
+    #[test]
+    fn session_prime_topology_drift_none_when_docs_topology_unset() {
+        // ac-02 4th case: config file present but docs.topology unset →
+        // configured == false → topology_drift key absent.
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        std::fs::write(layout.config_file(), "{}\n").unwrap();
+        let resp = session_prime(&layout, &SessionPrimeArgs::default()).unwrap();
+        assert!(
+            resp.topology_drift.is_none(),
+            "expected None on config-present-but-docs.topology-absent, got {:?}",
+            resp.topology_drift
+        );
+    }
+
+    #[test]
+    fn session_prime_topology_drift_some_empty_when_configured_clean() {
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        install_topology(&layout, &["auth"]);
+        let resp = session_prime(&layout, &SessionPrimeArgs::default()).unwrap();
+        match resp.topology_drift {
+            Some(d) => assert!(d.is_empty(), "expected empty drift, got {d:?}"),
+            None => panic!("expected Some(empty), got None"),
+        }
+    }
+
+    #[test]
+    fn session_prime_topology_drift_some_populated_when_drift_present() {
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        let repo = layout.root.parent().unwrap();
+        // Topology covers `auth` but codebase also has `ingest` → missing_entry.
+        std::fs::create_dir_all(repo.join("src/auth")).unwrap();
+        std::fs::create_dir_all(repo.join("src/ingest")).unwrap();
+        std::fs::write(repo.join("src/auth/mod.rs"), "// auth\n").unwrap();
+        std::fs::create_dir_all(repo.join("docs")).unwrap();
+        let topology = "## auth\n\n- code: src/auth/mod.rs\n- decision: src/auth/mod.rs\n- operational: src/auth/mod.rs\n- tests: src/auth/mod.rs\n- what: auth\n";
+        std::fs::write(repo.join("docs/topology.md"), topology).unwrap();
+        std::fs::write(
+            layout.config_file(),
+            "docs:\n  topology: docs/topology.md\n",
+        )
+        .unwrap();
+        let resp = session_prime(&layout, &SessionPrimeArgs::default()).unwrap();
+        let drift = resp.topology_drift.expect("Some when configured");
+        assert!(!drift.is_empty(), "expected populated drift");
+        assert!(drift.iter().any(|d| d.subsystem == "ingest" && d.drift_kind == "missing_entry"));
+    }
+
+    // ----- ac-03: spec.close topology_warnings -----
+
+    /// Plant a spec + sidecars under `layout.spec_dir(id)` with the given
+    /// text inside spec.yaml's goal. Spec ACs are empty so spec.close does
+    /// not block.
+    fn install_spec_for_warnings(layout: &OrbitLayout, id: &str, spec_text: &str, interview: Option<&str>, design_note: Option<&str>) {
+        layout.ensure_spec_dir(id).unwrap();
+        let spec = Spec {
+            id: id.into(),
+            goal: spec_text.to_string(),
+            cards: vec![],
+            status: SpecStatus::Open,
+            labels: vec![],
+            acceptance_criteria: vec![],
+        };
+        std::fs::write(layout.spec_file(id), serialise_yaml(&spec).unwrap()).unwrap();
+        if let Some(body) = interview {
+            std::fs::write(layout.spec_dir(id).join("interview.md"), body).unwrap();
+        }
+        if let Some(body) = design_note {
+            std::fs::write(layout.spec_dir(id).join("design-note.md"), body).unwrap();
+        }
+    }
+
+    #[test]
+    fn spec_close_topology_warnings_populated_on_word_boundary_match() {
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        install_topology(&layout, &["session_prime"]);
+        install_spec_for_warnings(
+            &layout,
+            "0001",
+            "Adding a topology_drift field to session_prime envelope.",
+            None,
+            None,
+        );
+        let result = spec_close(&layout, &SpecCloseArgs { id: "0001".into(), force: false }).unwrap();
+        assert!(
+            result.topology_warnings.iter().any(|w| w.subsystem == "session_prime"),
+            "expected session_prime warning, got {:?}",
+            result.topology_warnings
+        );
+    }
+
+    #[test]
+    fn spec_close_topology_warnings_empty_on_substring_only() {
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        install_topology(&layout, &["session_prime"]);
+        // Substring (no word boundaries — "session_primer" contains
+        // "session_prime" as a substring but not on word boundaries).
+        install_spec_for_warnings(
+            &layout,
+            "0002",
+            "Spec touches the session_primer module which is unrelated.",
+            None,
+            None,
+        );
+        let result = spec_close(&layout, &SpecCloseArgs { id: "0002".into(), force: false }).unwrap();
+        assert!(
+            !result.topology_warnings.iter().any(|w| w.subsystem == "session_prime"),
+            "substring should not match: {:?}",
+            result.topology_warnings
+        );
+    }
+
+    #[test]
+    fn spec_close_topology_warnings_excludes_short_subsystem_names() {
+        // ≥5 char filter — "memo" (4 chars) should be excluded even when
+        // matched in the spec text.
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        install_topology(&layout, &["memo"]);
+        install_spec_for_warnings(
+            &layout,
+            "0003",
+            "We propagate memo handling across the new layer.",
+            None,
+            None,
+        );
+        let result = spec_close(&layout, &SpecCloseArgs { id: "0003".into(), force: false }).unwrap();
+        assert!(
+            !result.topology_warnings.iter().any(|w| w.subsystem == "memo"),
+            "4-char subsystem must be filtered out: {:?}",
+            result.topology_warnings
+        );
+    }
+
+    #[test]
+    fn spec_close_topology_warnings_match_in_design_note_only() {
+        // ac-03 cycle-1 LOW: design-note.md must be in the scan set, not
+        // just spec.yaml + interview.md.
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        install_topology(&layout, &["session_prime"]);
+        install_spec_for_warnings(
+            &layout,
+            "0004",
+            "Goal text mentions nothing relevant.",
+            Some("# Interview\n\nNo subsystem names here.\n"),
+            Some("# Design Note\n\nThis pinned approach extends session_prime.\n"),
+        );
+        let result = spec_close(&layout, &SpecCloseArgs { id: "0004".into(), force: false }).unwrap();
+        assert!(
+            result.topology_warnings.iter().any(|w| w.subsystem == "session_prime"),
+            "design-note.md must be scanned: {:?}",
+            result.topology_warnings
+        );
+    }
+
+    #[test]
+    fn spec_close_topology_warnings_regex_escape_on_metachars() {
+        // ac-03 cycle-2 LOW carried from parent: regex::escape must be
+        // applied to subsystem names so metacharacters match literally.
+        // Without escape, `foo.bar` would match `fooXbar` (any character)
+        // because `.` is a regex wildcard.
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        let repo = layout.root.parent().unwrap();
+        // Install a topology entry with a metachar-bearing subsystem name.
+        // Anchors point at the repo root so they resolve.
+        std::fs::create_dir_all(repo.join("docs")).unwrap();
+        let topology = "## foo.bar\n\n- code: docs/topology.md\n- decision: docs/topology.md\n- operational: docs/topology.md\n- tests: docs/topology.md\n- what: meta-charged subsystem\n";
+        std::fs::write(repo.join("docs/topology.md"), topology).unwrap();
+        std::fs::write(
+            layout.config_file(),
+            "docs:\n  topology: docs/topology.md\n",
+        )
+        .unwrap();
+
+        // Literal "foo.bar" present — must match.
+        install_spec_for_warnings(
+            &layout,
+            "0005",
+            "We have foo.bar in the spec text.",
+            None,
+            None,
+        );
+        let result = spec_close(&layout, &SpecCloseArgs { id: "0005".into(), force: false }).unwrap();
+        assert!(
+            result.topology_warnings.iter().any(|w| w.subsystem == "foo.bar"),
+            "literal foo.bar should match: {:?}",
+            result.topology_warnings
+        );
+
+        // Different spec — "fooXbar" present, "foo.bar" not. Without
+        // regex::escape, the `.` would be a wildcard and match the X.
+        install_spec_for_warnings(
+            &layout,
+            "0006",
+            "We have fooXbar in the spec text but not the literal name.",
+            None,
+            None,
+        );
+        let result = spec_close(&layout, &SpecCloseArgs { id: "0006".into(), force: false }).unwrap();
+        assert!(
+            !result.topology_warnings.iter().any(|w| w.subsystem == "foo.bar"),
+            "fooXbar must NOT match foo.bar — proves regex::escape is applied: {:?}",
+            result.topology_warnings
+        );
+    }
+
+    #[test]
+    fn spec_close_topology_warnings_empty_when_not_configured() {
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        install_spec_for_warnings(
+            &layout,
+            "0007",
+            "session_prime mentioned but topology not configured.",
+            None,
+            None,
+        );
+        let result = spec_close(&layout, &SpecCloseArgs { id: "0007".into(), force: false }).unwrap();
+        assert!(
+            result.topology_warnings.is_empty(),
+            "no warnings when capability unconfigured: {:?}",
+            result.topology_warnings
+        );
+    }
+
+    // ----- ac-04: memory.remember topology nudge -----
+
+    #[test]
+    fn memory_remember_topology_label_emits_nudge() {
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        let result = memory_remember(
+            &layout,
+            &MemoryRememberArgs {
+                key: "k-with-topology".into(),
+                body: "body".into(),
+                labels: vec!["topology".into()],
+                timestamp: Some("2026-05-18T00:00:00Z".into()),
+                no_nudge: false,
+            },
+        )
+        .unwrap();
+        assert!(
+            result.nudge.is_some(),
+            "expected nudge populated when topology label present"
+        );
+        let nudge = result.nudge.unwrap();
+        assert!(
+            nudge.contains("/orb:topology"),
+            "nudge text must mention /orb:topology, got {nudge}"
+        );
+    }
+
+    #[test]
+    fn memory_remember_without_topology_label_emits_no_nudge() {
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        let result = memory_remember(
+            &layout,
+            &MemoryRememberArgs {
+                key: "k-no-label".into(),
+                body: "body".into(),
+                labels: vec!["unrelated".into()],
+                timestamp: Some("2026-05-18T00:00:00Z".into()),
+                no_nudge: false,
+            },
+        )
+        .unwrap();
+        assert!(
+            result.nudge.is_none(),
+            "no nudge when topology label absent, got {:?}",
+            result.nudge
+        );
+    }
+
+    #[test]
+    fn memory_remember_no_nudge_flag_suppresses_nudge() {
+        let (_dir, layout) = fresh_topology_layout();
+        layout.ensure_dirs().unwrap();
+        let result = memory_remember(
+            &layout,
+            &MemoryRememberArgs {
+                key: "k-suppressed".into(),
+                body: "body".into(),
+                labels: vec!["topology".into()],
+                timestamp: Some("2026-05-18T00:00:00Z".into()),
+                no_nudge: true,
+            },
+        )
+        .unwrap();
+        assert!(
+            result.nudge.is_none(),
+            "--no-nudge must suppress even with topology label, got {:?}",
+            result.nudge
+        );
+    }
+
+    #[test]
+    fn memory_remember_canonical_nudge_text_const() {
+        // Lock the canonical text via a const — tests grep for this to
+        // confirm the implementation matches the documented contract.
+        assert!(TOPOLOGY_NUDGE.contains("consider /orb:topology"));
     }
 }

@@ -946,6 +946,317 @@ fn audit_topology_cli_drift_envelope() {
     assert_eq!(drift[0]["drift_kind"], "missing_entry");
 }
 
+// ----- session prime topology_drift CLI parity (spec 2026-05-18-topology-substrate-wires ac-02) -----
+
+#[test]
+fn session_prime_cli_topology_drift_omitted_when_config_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".orbit")).unwrap();
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args(["--root", dir.path().to_str().unwrap(), "--json", "session", "prime"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let envelope: serde_json::Value =
+        serde_json::from_str(stdout.trim_end_matches('\n')).expect("json");
+    let result = &envelope["data"]["result"];
+    // ac-02: key absent (not empty array) when capability not configured.
+    assert!(
+        result.get("topology_drift").is_none(),
+        "expected key absent when config absent, got {result}",
+    );
+}
+
+#[test]
+fn session_prime_cli_topology_drift_omitted_when_docs_topology_unset() {
+    // ac-02 4th state: config file present but docs.topology unset →
+    // configured == false → key absent (not just empty array).
+    let dir = tempfile::tempdir().unwrap();
+    let orbit_dir = dir.path().join(".orbit");
+    std::fs::create_dir_all(&orbit_dir).unwrap();
+    std::fs::write(orbit_dir.join("config.yaml"), "{}\n").unwrap();
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args(["--root", dir.path().to_str().unwrap(), "--json", "session", "prime"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let envelope: serde_json::Value =
+        serde_json::from_str(stdout.trim_end_matches('\n')).expect("json");
+    let result = &envelope["data"]["result"];
+    assert!(
+        result.get("topology_drift").is_none(),
+        "expected key absent when docs.topology unset, got {result}",
+    );
+}
+
+#[test]
+fn session_prime_cli_topology_drift_empty_array_when_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    let orbit_dir = dir.path().join(".orbit");
+    std::fs::create_dir_all(&orbit_dir).unwrap();
+    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+    std::fs::write(
+        orbit_dir.join("config.yaml"),
+        "docs:\n  topology: docs/topology.md\n",
+    )
+    .unwrap();
+    // Empty topology doc + no codebase subsystems → clean.
+    std::fs::write(dir.path().join("docs/topology.md"), "# Topology\n").unwrap();
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args(["--root", dir.path().to_str().unwrap(), "--json", "session", "prime"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let envelope: serde_json::Value =
+        serde_json::from_str(stdout.trim_end_matches('\n')).expect("json");
+    let result = &envelope["data"]["result"];
+    // ac-02: configured + clean → key present, value empty array.
+    let drift = result
+        .get("topology_drift")
+        .expect("topology_drift key must be present when configured");
+    assert_eq!(
+        drift.as_array().expect("array").len(),
+        0,
+        "expected empty array when clean",
+    );
+}
+
+#[test]
+fn session_prime_cli_topology_drift_populated_when_drift_present() {
+    let dir = tempfile::tempdir().unwrap();
+    let orbit_dir = dir.path().join(".orbit");
+    std::fs::create_dir_all(&orbit_dir).unwrap();
+    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+    std::fs::create_dir_all(dir.path().join("src/auth")).unwrap();
+    std::fs::write(
+        orbit_dir.join("config.yaml"),
+        "docs:\n  topology: docs/topology.md\n",
+    )
+    .unwrap();
+    // src/auth in codebase but no topology entry → missing_entry drift.
+    std::fs::write(dir.path().join("docs/topology.md"), "# Topology\n").unwrap();
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args(["--root", dir.path().to_str().unwrap(), "--json", "session", "prime"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let envelope: serde_json::Value =
+        serde_json::from_str(stdout.trim_end_matches('\n')).expect("json");
+    let result = &envelope["data"]["result"];
+    let drift = result["topology_drift"].as_array().expect("array");
+    assert_eq!(drift.len(), 1);
+    assert_eq!(drift[0]["subsystem"], "auth");
+    assert_eq!(drift[0]["drift_kind"], "missing_entry");
+}
+
+// ----- spec.close topology_warnings CLI parity (ac-03) -----
+
+#[test]
+fn spec_close_cli_topology_warnings_populated_on_word_boundary_match() {
+    let dir = tempfile::tempdir().unwrap();
+    let orbit_dir = dir.path().join(".orbit");
+    std::fs::create_dir_all(orbit_dir.join("specs/0001")).unwrap();
+    std::fs::create_dir_all(orbit_dir.join("cards")).unwrap();
+    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+    std::fs::create_dir_all(dir.path().join("src/session_prime")).unwrap();
+    std::fs::write(
+        dir.path().join("src/session_prime/mod.rs"),
+        "// mod\n",
+    )
+    .unwrap();
+
+    // Topology doc with a subsystem of length ≥ 5 chars whose anchors
+    // resolve.
+    let topology = "## session_prime\n\n- code: src/session_prime/mod.rs\n- decision: src/session_prime/mod.rs\n- operational: src/session_prime/mod.rs\n- tests: src/session_prime/mod.rs\n- what: session prime envelope verb\n";
+    std::fs::write(dir.path().join("docs/topology.md"), topology).unwrap();
+    std::fs::write(
+        orbit_dir.join("config.yaml"),
+        "docs:\n  topology: docs/topology.md\n",
+    )
+    .unwrap();
+
+    // Plant a spec whose goal mentions the subsystem.
+    let spec_yaml = "id: \"0001\"\ngoal: Adding a topology_drift field to session_prime envelope.\ncards: []\nstatus: open\nlabels: []\nacceptance_criteria: []\n";
+    std::fs::write(orbit_dir.join("specs/0001/spec.yaml"), spec_yaml).unwrap();
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args(["--root", dir.path().to_str().unwrap(), "--json", "spec", "close", "0001"])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success(), "spec.close should succeed: {output:?}");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let envelope: serde_json::Value =
+        serde_json::from_str(stdout.trim_end_matches('\n')).expect("json");
+    let result = &envelope["data"]["result"];
+    let warnings = result["topology_warnings"].as_array().expect("array");
+    assert!(
+        warnings.iter().any(|w| w["subsystem"] == "session_prime"),
+        "expected session_prime warning, got {warnings:?}",
+    );
+}
+
+// ----- memory.remember nudge CLI parity (ac-04) -----
+
+#[test]
+fn memory_remember_cli_topology_label_envelope_carries_nudge() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".orbit")).unwrap();
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args([
+            "--root",
+            dir.path().to_str().unwrap(),
+            "--json",
+            "memory",
+            "remember",
+            "k1",
+            "body",
+            "--label",
+            "topology",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let envelope: serde_json::Value =
+        serde_json::from_str(stdout.trim_end_matches('\n')).expect("json");
+    let result = &envelope["data"]["result"];
+    let nudge = result["nudge"].as_str().expect("nudge present");
+    assert!(
+        nudge.contains("/orb:topology"),
+        "nudge text must reference /orb:topology, got {nudge}",
+    );
+}
+
+#[test]
+fn memory_remember_cli_no_label_envelope_omits_nudge() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".orbit")).unwrap();
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args([
+            "--root",
+            dir.path().to_str().unwrap(),
+            "--json",
+            "memory",
+            "remember",
+            "k2",
+            "body",
+            "--label",
+            "unrelated",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let envelope: serde_json::Value =
+        serde_json::from_str(stdout.trim_end_matches('\n')).expect("json");
+    let result = &envelope["data"]["result"];
+    assert!(
+        result.get("nudge").is_none(),
+        "nudge key must be absent without topology label, got {result}",
+    );
+}
+
+#[test]
+fn memory_remember_cli_no_nudge_flag_suppresses_envelope_nudge() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".orbit")).unwrap();
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args([
+            "--root",
+            dir.path().to_str().unwrap(),
+            "--json",
+            "memory",
+            "remember",
+            "k3",
+            "body",
+            "--label",
+            "topology",
+            "--no-nudge",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let envelope: serde_json::Value =
+        serde_json::from_str(stdout.trim_end_matches('\n')).expect("json");
+    let result = &envelope["data"]["result"];
+    assert!(
+        result.get("nudge").is_none(),
+        "nudge must be absent when --no-nudge is set even with topology label, got {result}",
+    );
+}
+
+#[test]
+fn memory_remember_cli_human_mode_renders_nudge_to_stderr() {
+    // ac-04: human mode (no --json) renders the nudge to STDERR; stdout
+    // must NOT contain the nudge text. Locks the channel split.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".orbit")).unwrap();
+
+    let cli_bin = env!("CARGO_BIN_EXE_orbit");
+    let output = Command::new(cli_bin)
+        .args([
+            "--root",
+            dir.path().to_str().unwrap(),
+            "memory",
+            "remember",
+            "k4",
+            "body",
+            "--label",
+            "topology",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run cli");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf-8");
+    let stderr = String::from_utf8(output.stderr).expect("utf-8");
+    assert!(
+        stderr.contains("/orb:topology"),
+        "nudge must appear on STDERR, got stderr={stderr:?}",
+    );
+    assert!(
+        !stdout.contains("/orb:topology"),
+        "nudge must NOT appear on STDOUT, got stdout={stdout:?}",
+    );
+}
+
 // Helper visible to ensure the test binary depends on the CLI binary.
 #[allow(dead_code)]
 fn _binary_dep_anchor(_p: &Path) {}

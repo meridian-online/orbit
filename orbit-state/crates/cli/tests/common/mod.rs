@@ -418,6 +418,7 @@ pub fn expected_envelope_for_spec_close_force() -> String {
         cards_updated: vec!["0020-orbit-state".into()],
         forced_unchecked: vec!["ac-02".into()],
         deferrable_open: vec!["ac-03".into()],
+        topology_warnings: vec![],
     });
     envelope_ok_string(&response).expect("infallible")
 }
@@ -530,6 +531,7 @@ pub fn expected_envelope_for_spec_close_only_deferrable() -> String {
         cards_updated: vec!["0020-orbit-state".into()],
         forced_unchecked: vec![],
         deferrable_open: vec!["ac-02".into()],
+        topology_warnings: vec![],
     });
     envelope_ok_string(&response).expect("infallible")
 }

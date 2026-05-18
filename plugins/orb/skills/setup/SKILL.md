@@ -201,6 +201,32 @@ If 6a fired the migration prompt and the author accepted, this step also removes
 
 If `@.orbit/METHOD.md` is already present, no-op (idempotent).
 
+**6d. Topology capability scaffolding.** Wire the `docs.topology` pointer in `.orbit/config.yaml` and create the stub topology doc. The byte-compare-and-prompt voice of §6b applies — the prompt fires when the substrate is absent; idempotent on a wired repo.
+
+The operation is implemented as a single shell script:
+
+```
+plugins/orb/scripts/setup-topology.sh --project-root <project>
+```
+
+Steps the script performs:
+
+1. **Idempotent check.** If `.orbit/config.yaml` exists and carries a `docs.topology` entry, no-op on the config — but if the target file at that path does not exist on disk, still create the stub at that path (brownfield-accept rule, suppresses first-prime drift noise).
+2. **Wire-or-decline prompt.** When `docs.topology` is absent (either the config doesn't exist or the key isn't set), prompt:
+
+   ```
+   orbit: topology capability not wired (docs.topology absent from .orbit/config.yaml).
+   orbit: wiring scaffolds .orbit/config.yaml with docs.topology: docs/topology.md and creates a stub at that path.
+   Wire topology now? (y/N)
+   ```
+
+   - **`y`:** scaffold `.orbit/config.yaml` with `docs.topology: docs/topology.md` (default; if the file exists without the key, add it under the `docs:` block). If the target path's parent directory does not exist, create the directory tree before writing the stub. Then either create a stub `docs/topology.md` (heading + one-paragraph explainer + empty entry list) or, if a file already exists at the target path, wire the pointer but do NOT overwrite the existing file.
+   - **anything else:** leave the topology capability unconfigured. The rest of orbit still works.
+
+3. **Test affordance.** `--answer-wire y|n` scripts the prompt for non-interactive runs.
+
+Topology scaffolding is independent of §6a-§6c (it neither reads nor writes CLAUDE.md / METHOD.md). It runs after them in the §6 sequence but can be invoked standalone.
+
 ### 7. First Card Tutorial
 
 Walk the author through writing their first feature card using `/orb:card`. Explain:
