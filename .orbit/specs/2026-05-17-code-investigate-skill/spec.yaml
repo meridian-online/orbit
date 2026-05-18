@@ -2,7 +2,7 @@ id: 2026-05-17-code-investigate-skill
 goal: Ship /orb:code-investigate as a sub-skill that coaches agents to reach for AST-aware tools (ast-grep, tree-sitter, rg, rtk wrappers) for code investigation in both narrow query and broad neighbourhood modes; embed call-points in /orb:implement, /orb:researcher, and /orb:review-pr; install a soft PreToolUse hook that warns when Edit/Write is invoked without a recent investigation; seed the learning loop via memories labelled code-investigate. Intent contract and design decisions in .orbit/specs/2026-05-17-code-investigate-skill/interview.md.
 cards:
 - 0025-codebase-mastery
-status: open
+status: closed
 labels:
 - spec
 acceptance_criteria:

@@ -2,9 +2,9 @@ spec_id: 2026-05-17-code-investigate-skill
 card_path: /home/hugh/github/meridian-online/orbit/.orbit/cards/0025-codebase-mastery.yaml
 autonomy: guided
 iteration: 1
-stage: implement
+stage: review-pr
 review_spec_cycle: 2
 review_spec_date: 2026-05-18
 review_pr_cycle: 0
-review_pr_date: null
+review_pr_date: 2026-05-18
 iteration_history: []

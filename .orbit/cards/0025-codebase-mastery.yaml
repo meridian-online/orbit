@@ -41,7 +41,8 @@ scenarios:
   when: v0.2 lands
   then: code-domain verbs (orbit code stats, orbit code grep-ast, orbit code rg) are added to the same MCP server; the verb namespace was reserved at v0.1 design time
   gate: false
-specs: []
+specs:
+- .orbit/specs/2026-05-17-code-investigate-skill/spec.yaml
 relations:
 - card: 0019-tabletop
   type: feeds
