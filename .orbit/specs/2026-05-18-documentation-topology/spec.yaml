@@ -2,7 +2,7 @@ id: 2026-05-18-documentation-topology
 goal: 'Ship /orb:topology as the architecture-level analogue of /orb:code-investigate — a skill that scaffolds, writes, and audits a subsystem-keyed pointer-only doc whose location is consumer-owned via a .orbit/config.yaml pointer. Update triggers fire at learning moments (/orb:distill completion, orbit memory remember with the topology label) and at session boundaries (orbit session prime surfaces drift). Audit warns at gate moments (spec.close, orbit release) without blocking. Intent contract and design decisions in .orbit/specs/2026-05-18-documentation-topology/interview.md. Sequencing: ac-02 → ac-03 → ac-04 (Config artefact, docs.topology key, verify wiring) close before ac-06, ac-07, ac-08, ac-09 (the verbs that read the pointer) can be tested. Backout for the schema-level ac-02 change: revert the Config artefact addition; absence-of-config-file is a tolerated state, so consumer repos that created .orbit/config.yaml during a broken window remain valid (file becomes inert).'
 cards:
 - 0040-documentation-topology
-status: open
+status: closed
 labels:
 - spec
 acceptance_criteria:

@@ -1,0 +1,27 @@
+id: 82764bfd-4616-4c2f-a597-704f36be675c
+started_at: 2026-05-17T20:30:09.846523024Z
+ended_at: 2026-05-17T20:30:09.846523024Z
+distillate: |-
+  TL;DR: Open `/orb:design` on `2026-05-17-code-investigate-skill` first — it's the only artefact with named open decisions and a fresh-session preference attached.
+
+  Recommendation: Run `/orb:design 2026-05-17-code-investigate-skill`.
+
+  Why
+  - Yesterday's handover flagged it as the next concrete move and explicitly preferred a fresh session for it.
+  - Three design decisions are already named (session-state surface for "recent investigation", hook implementation path, call-point prose in `/orb:implement` / `/orb:researcher` / `/orb:review-pr`) — the session has a clear shape.
+  - Everything else in the queue is a memo distill or touch-up; none unblocks pipeline work the way landing this spec's design does.
+
+  Queue behind it (in order)
+  1. `/orb:distill` on `style-md-less-executive-more-practical` — Hugh's prior #2.
+  2. `/orb:distill` on `setup-conformance-check`.
+  3. Card 0024 lean-pass touch-up (add sessions to its category list).
+  4. Fold `.orbit/memos/2026-05-17-read-the-cited-source.md` into card 0037's eventual design pass — not standalone.
+
+  Available on request
+  - One-line read of each of the three queued memos before distilling.
+  - The three named open decisions on the code-investigate spec, expanded.
+  - Status check on whether the spec file and memos are still on disk before kick-off.
+
+  Confidence: high — straight pickup from the handover; the only judgement call is bumping STYLE.md from #2-stated to #2-actual behind the design pass, which the handover explicitly authorises.
+card_id: 0025-codebase-mastery
+labels: []

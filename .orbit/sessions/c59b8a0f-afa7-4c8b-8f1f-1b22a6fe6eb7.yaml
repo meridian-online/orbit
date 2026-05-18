@@ -1,0 +1,27 @@
+id: c59b8a0f-afa7-4c8b-8f1f-1b22a6fe6eb7
+started_at: 2026-05-18T01:36:12.953905311Z
+ended_at: 2026-05-18T01:36:12.953905311Z
+distillate: |-
+  TL;DR: Primed and ready — priority is `/orb:distill` on the doc-topology memo (pillar #2: agent self-learning).
+
+  Recommendation: Run `/orb:distill .orbit/memos/2026-05-18-documentation-topology-index.md`.
+
+  Why
+  - Primer explicitly anchors this as Hugh-confirmed priority over the other queued distills.
+  - Topology index compounds across the substrate — specs cite entries instead of rehearsing context, skills target canonical files per subsystem.
+  - Memo carries Hugh's framing already; ready to distill without a discovery pass.
+
+  Queue behind it
+  1. `/orb:distill` style-md-less-executive-more-practical
+  2. `/orb:distill` 2026-05-18-drive-autonomy-too-ready-to-halt
+  3. `/orb:design` on card 0039 (setup conformance check)
+  4. Warning sink for ac-07 audit before 2026-06-15
+  5. Card 0024 lean-pass touch-up
+
+  Available on request
+  - One-line read of the doc-topology memo before kick-off.
+  - Status check on whether the three queued memos are still on disk.
+  - `orbit overview` for the single-screen synthesis.
+
+  Shall I kick off the distill, or do you want to redirect?
+labels: []
