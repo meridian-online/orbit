@@ -1,0 +1,10 @@
+spec_id: 2026-05-19-workflow-conformance
+card_path: /home/hugh/github/meridian-online/orbit/.orbit/cards/0039-workflow-conformance.yaml
+autonomy: full
+iteration: 1
+stage: implement
+review_spec_cycle: 1
+review_spec_date: '2026-05-19'
+review_pr_cycle: 0
+review_pr_date: null
+iteration_history: []
