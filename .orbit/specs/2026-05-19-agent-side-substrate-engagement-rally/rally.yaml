@@ -1,7 +1,7 @@
 rally_id: 2026-05-19-agent-side-substrate-engagement-rally
 goal: agent-side substrate engagement — consult and act on persistent state at the moment it matters
 autonomy: guided
-phase: design-review
+phase: implementing
 started: 2026-05-19T06:30:00Z
 completed: null
 children:
@@ -23,6 +23,8 @@ children:
   spec_id: 2026-05-19-act-when-authorised
   branch: rally/act-when-authorised
   card_phase: designed
-  dep_predecessors: []
+  dep_predecessors:
+  - 2026-05-19-memory-gates-decisions
+  - 2026-05-19-skills-infer-or-prompt-before-halt
   worktree: null
   rally_id: 2026-05-19-agent-side-substrate-engagement-rally
