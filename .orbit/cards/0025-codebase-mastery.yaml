@@ -4,7 +4,7 @@ as_a: agent working in any of Hugh's repos
 i_want: rtk-wrapped commands, tree-sitter for AST queries, ripgrep and ast-grep for search — all delivered via /orb:code-investigate in token-frugal modes by default
 so_that: I can check the codebase before editing it (Think Before Coding), reuse existing patterns (Simplicity First), edit surgically (Surgical Changes), and write tests-first (Goal-Driven Execution) — without burning the context budget on browsing
 goal: agents check the codebase cheaply enough that they actually check — /orb:code-investigate is the delivery vehicle for the token-frugal default with a PreToolUse nudge ensuring the discipline fires before edits; Karpathy's principles become operable rather than aspirational; token cost of evidence is low enough that evidence is gathered before assumptions are made
-maturity: planned
+maturity: emerging
 scenarios:
 - name: rtk wraps command interactions by default
   given: any agent invocation that runs a command (git, find, ls, head, tail)

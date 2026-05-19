@@ -1,0 +1,49 @@
+id: 0042-act-when-authorised
+feature: Act when authorised — agents proceed without escalation when substrate already answers
+as_a: agent in mid-session autonomy under /orb:drive or /orb:rally
+i_want: a discipline that prevents halting when I already have a recommendation, the evidence to act on it, and contract authorisation to proceed
+so_that: halt-temptation does not masquerade as discipline, escalation cycles do not burn on questions the substrate has already answered, and the autonomy contract delivers the friction reduction it was designed for
+goal: agents in mid-session autonomy halt only when at least one of {recommendation, evidence, authorisation} is genuinely missing; the three-question test fires at every halt-temptation moment as the inverse of "consult the substrate first"
+maturity: planned
+scenarios:
+- name: Three-question test at halt-temptation
+  given: an agent about to invoke AskUserQuestion or surface a Decision Brief mid-autonomy
+  when: the halt is triggered by a verdict, severity, or seemingly load-bearing decision
+  then: the agent first checks three questions — do I have a recommendation? do I have evidence to act on it? does the contract authorise me to proceed? three yeses → act, do not ask
+  gate: true
+- name: Severity is reviewer-language, not autonomy-language
+  given: a review verdict carrying HIGH or MEDIUM findings under guided or full autonomy
+  when: the agent considers escalation
+  then: severity informs how to address (priority, order) but not whether to address; REQUEST_CHANGES under guided autonomy is absorbed by the §1.6 cycle budget, not surfaced to the operator
+  gate: false
+- name: Decision Brief framing does not justify menu-presenting
+  given: an agent tempted to surface "three options with a recommendation" mid-autonomy
+  when: the agent recognises this is the BLUF-shaped frame from 0026-executive-communication
+  then: the frame is for closing recommendations to the operator, not for in-flight decisions; the imperative single action is correct mid-autonomy
+  gate: false
+- name: Pre-commit halts have stage scope, not surface scope
+  given: a pre-commit halt registered against an implementation surface (e.g., ac-02 hook registration during /orb:implement)
+  when: the same surface is decided in spec text during /orb:review-spec or /orb:design
+  then: the halt does not auto-widen — its scope is the stage it was registered against; conservative widening turns a stage gate into a surface gate
+  gate: false
+- name: Memory plus contract is sufficient authorisation
+  given: a relevant memory (e.g., mid-session-autonomy-contract-default-to-action-halt) and a drive contract authorising the action
+  when: the agent is tempted to halt for confirmation
+  then: memory + contract is treated as load-bearing authorisation; halting against it constitutes ignoring the substrate the discipline was built on
+  gate: false
+specs: []
+relations:
+- card: 0005-drive
+  type: feeds
+  reason: drive's autonomy contract is where this discipline operates; the three-question test belongs at AskUserQuestion temptation moments inside drive
+- card: 0026-executive-communication
+  type: depends-on
+  reason: the Decision Brief frame from 0026 is one of the contributing patterns — agents misapply the closing-recommendation shape to in-flight decisions
+- card: 0006-rally
+  type: feeds
+  reason: rally sub-agents are mid-session-autonomy too; the discipline applies symmetrically to rally fan-out
+references:
+- '.orbit/memos/2026-05-18-drive-autonomy-too-ready-to-halt.md: original observation — two halt moments during the 2026-05-17-code-investigate-skill drive; named as fourth instance of the agent-side substrate-engagement cluster (inverse failure mode: halt when substrate authorises action)'
+notes:
+- 'Cluster fit: this card is the inverse-failure-mode sibling of 0025/0037/0038 — those address "consult substrate first" failures; this addresses "act on substrate authorisation" failures. Same axis (agent relationship to persistent state), opposite direction.'
+- 'Structural fix candidate: a pre-halt check in /orb:drive that runs the three-question test before AskUserQuestion fires. Memo named this as the highest-leverage option.'
