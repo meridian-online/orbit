@@ -1,0 +1,4 @@
+key: rally-tool-surface-incomplete
+body: 'Rally sub-agents at Agent-nesting depth 2+ may lack Agent tool (Claude Code harness derives deferred-tool set per spawn; subagent_type=general-purpose doesn''t guarantee Agent tool reaches nested forks). Workaround already in substrate: ToolSearch select:Agent pre-flight in drive SKILL.md s5.3/s7.3, plus tool_surface_incomplete reason_label in rally s7c/s9 to absorb escalation as single-strike park. Proper fix waits on Claude Code adding a tool-whitelist override to the Agent spawn API. Origin: memo 2026-04-29-rally-cold-fork-degradation (deleted post-distill 2026-05-19).'
+timestamp: 2026-05-19T05:55:26.138226389Z
+labels: []

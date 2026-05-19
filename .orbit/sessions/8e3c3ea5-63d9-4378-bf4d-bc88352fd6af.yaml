@@ -1,0 +1,17 @@
+id: 8e3c3ea5-63d9-4378-bf4d-bc88352fd6af
+started_at: 2026-05-19T05:53:54.937757102Z
+ended_at: 2026-05-19T05:53:54.937757102Z
+distillate: |-
+  TL;DR — Session priorities received; recommend starting with #1 (stale memo triage) as the cheapest unblock for a clean conformance baseline.
+
+  **Recommendation:** Run `/orb:distill` on the three stale memos in order, deleting any that don't yield a card-worthy insight.
+
+  **Why:**
+  - Cheapest move (15-45 min) and clears noise from `orbit audit conformance` so #2's triage signal is uncluttered.
+  - Stale memos compound — a fourth deferral makes the synthesis decision (#3) harder to reason about.
+  - Sequential prerequisite: clean substrate before bulk card triage.
+
+  **Available on request:** the three memos are `2026-04-29-rally-cold-fork-degradation`, `2026-05-01-pilot-rollout-check-in`, `2026-05-08-cross-reference-integrity-gap`.
+
+  Confirm start with #1, or redirect?
+labels: []

@@ -1,0 +1,37 @@
+id: 0041-reference-integrity
+feature: Reference integrity — substrate plumbing audit
+as_a: orbit user
+i_want: a verb that walks every path-shaped reference inside live substrate artefacts and flags any that no longer resolve on disk
+so_that: broken plumbing between current artefacts is surfaced before it rots silently — distinct from the accretion-detection that lean-pass does
+goal: every references[] entry, every .md/.yaml body's path-shaped string, every code comment with a .orbit/... literal resolves on disk; broken refs land in the same advisory channel as lean-pass findings
+maturity: planned
+scenarios:
+- name: Lives in the gap between lean-pass and codebase-mastery
+  given: a substrate where artefacts are wanted, current, and on-mission but cross-references between them have rotted
+  when: lean-pass and codebase-mastery both run clean against that substrate
+  then: reference-integrity is the audit that catches the gap they each pass over — lean targets accretion (stale artefacts), codebase-mastery targets edit-time evidence (agent about to write), refs-integrity targets stale plumbing between live artefacts
+  gate: false
+- name: Walks every reference shape that matters
+  given: an orbit substrate with references[] arrays on cards, .md/.yaml bodies containing path strings, and code comments with .orbit/... literals
+  when: the audit runs
+  then: it inspects all three shapes and validates each path resolves on disk; broken refs are reported with origin file:line so the operator can fix them
+  gate: true
+- name: Advisory, not CI-blocking
+  given: broken references in the substrate
+  when: the audit fires
+  then: it reports findings to the lean-pass advisory channel — broken refs are hygiene, not substrate corruption; the audit does not block CI or auto-rewrite anything
+  gate: false
+- name: Migration tools that rename should emit a follow-up sweep
+  given: a migration tool (orbit-migrate or similar) rewriting paths across the substrate
+  when: the migration completes
+  then: a reference-integrity sweep runs against the renamed surface and either applies a follow-up rewrite or reports remaining broken refs — closes the gap at migration time rather than leaving a tail
+  gate: false
+specs: []
+relations:
+- card: 0024-lean-pass
+  type: feeds
+  reason: refs-integrity findings surface through the same advisory channel as lean-pass; refs is a column in the lean ledger, distinct from accretion columns
+references:
+- '.orbit/memos/2026-05-08-cross-reference-integrity-gap.md: original observation from hydrofoil orbit-state v0.1 cutover — ~28 broken refs after a clean migrate run'
+notes:
+- 'Origin substrate: hydrofoil orbit-state v0.1 cutover. N=1 evidence. Memo author noted "distillation can wait until a second project produces the same shape" — this card holds the framing without committing design until a second project surfaces broken-refs of the same shape. Hold at planned with empty specs[] until N=2.'
