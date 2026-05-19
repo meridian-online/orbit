@@ -4,7 +4,7 @@ as_a: agent working a drive
 i_want: to open, claim, update, and close session-scoped tasks within a spec — persisted across sessions and machines via append-only events
 so_that: the TaskList equivalent survives session resets, syncs across machines, and integrates with the rest of orbit's state — instead of vanishing when the Claude Code session context resets
 goal: tasks are the persistent TaskList equivalent — session-scoped sub-spec subdivisions an agent maintains within a drive, surviving session resets and cross-machine syncs through git
-maturity: planned
+maturity: established
 scenarios:
 - name: Tasks open during a drive
   given: an agent claiming a spec for implementation

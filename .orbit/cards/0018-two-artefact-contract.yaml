@@ -4,7 +4,7 @@ as_a: orbit user
 i_want: only cards and decisions to land on my desk; specs, agent state, and skill iteration to live in the agent substrate where I never have to read them
 so_that: my read flow is "what capabilities advanced" and "what choices were made" — the workflow pipeline runs invisibly underneath, surfacing only via card maturity advances and new choice files
 goal: the executive read surface stays exactly cards plus decisions plus the rendered dashboard; everything else runs invisibly in the agent substrate, never adding a third reading surface
-maturity: planned
+maturity: emerging
 scenarios:
 - name: Cards and decisions are the on-disk artefacts I curate
   given: an orbit project under steady-state operation

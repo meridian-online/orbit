@@ -4,7 +4,7 @@ as_a: agent working in an orbit project
 i_want: a Rust + SQLite + MCP state manager where text files are the canonical truth and a SQLite index is rebuildable from them, exposed through MCP verbs so I never edit raw YAML
 so_that: agent state is git-trackable, branch-aware, recoverable from clone alone, inspectable without learning new tools, and queryable at scale via the index — while format integrity is parser-enforced rather than trust-enforced
 goal: agent state is files-canonical with a derived SQLite index; git is the version control; the MCP server is the operator that protects format integrity, atomicity, and concurrency without the agent ever touching raw files
-maturity: planned
+maturity: established
 scenarios:
 - name: Files are canonical, database is derived
   given: an orbit project with state in .orbit/
